@@ -1,0 +1,2316 @@
+<roblox version="4">
+  <Item class="Lighting" referent="0">
+    <Properties>
+      <string name="Name">Lighting</string>
+      <token name="Technology">3</token>
+    </Properties>
+  </Item>
+  <Item class="ReplicatedStorage" referent="1">
+    <Properties>
+      <string name="Name">ReplicatedStorage</string>
+    </Properties>
+    <Item class="Folder" referent="2">
+      <Properties>
+        <string name="Name">Shared</string>
+      </Properties>
+      <Item class="ModuleScript" referent="3">
+        <Properties>
+          <string name="Name">Catalog</string>
+          <string name="Source"><![CDATA[--!strict
+-- Everything a player can buy, in the order it unlocks.
+--   price     ringgit to buy it
+--   income    ringgit a second it adds
+--   requires  ids that must be owned before its buy pad appears
+--   kind      which model the server builds (see server/Models)
+--   x, z      where it stands on the plot. The middle is 0,0; +z is the front, facing the plaza.
+--   y         height off the floor, for things on walls or the ceiling
+--   padX/padZ where its buy pad sits, when the default (just in front of it) would not work
+
+export type Item = {
+	id: string,
+	name: string,
+	price: number,
+	income: number,
+	requires: { string },
+	kind: string,
+	x: number,
+	z: number,
+	y: number?,
+	padX: number?,
+	padZ: number?,
+	autoCollect: boolean?,
+	unlocksBranch: boolean?,
+}
+
+local items: { Item } = {
+	-- One kopi stall
+	{ id = "kopi_stall", name = "Kopi Stall", price = 0, income = 1, requires = {}, kind = "stall", x = 0, z = -24 },
+	{ id = "table_1", name = "Marble Table", price = 25, income = 1, requires = { "kopi_stall" }, kind = "table", x = -12, z = 0 },
+	{ id = "roti_bakar", name = "Roti Bakar Toaster", price = 60, income = 2, requires = { "table_1" }, kind = "toaster", x = -12, z = -24 },
+	{ id = "half_boiled", name = "Half-Boiled Eggs", price = 120, income = 3, requires = { "roti_bakar" }, kind = "eggs", x = 12, z = -24 },
+	{ id = "table_2", name = "Second Table", price = 200, income = 3, requires = { "half_boiled" }, kind = "table", x = 12, z = 0 },
+	{ id = "teh_tarik", name = "Teh Tarik Station", price = 350, income = 6, requires = { "table_2" }, kind = "tehtarik", x = -24, z = -24 },
+	{ id = "walls", name = "Shop Walls", price = 500, income = 4, requires = { "teh_tarik" }, kind = "walls", x = 0, z = 0, padX = -24, padZ = 24 },
+	{ id = "ceiling_fan", name = "Ceiling Fans", price = 800, income = 8, requires = { "walls" }, kind = "fans", x = 0, z = 0, y = 15, padX = 0, padZ = 6 },
+
+	-- A proper hawker centre
+	{ id = "nasi_lemak", name = "Nasi Lemak Stall", price = 1500, income = 15, requires = { "ceiling_fan" }, kind = "stall", x = 24, z = -24 },
+	{ id = "char_kuey_teow", name = "Char Kuey Teow Wok", price = 2800, income = 25, requires = { "nasi_lemak" }, kind = "wok", x = -24, z = -12 },
+	{ id = "kaya_shelf", name = "Homemade Kaya Shelf", price = 4500, income = 35, requires = { "char_kuey_teow" }, kind = "shelf", x = 24, z = -12 },
+	{ id = "helper", name = "Hire Ah Boy (collects the till)", price = 6000, income = 0, requires = { "kaya_shelf" }, kind = "helper", x = 7, z = 22, padX = 14, padZ = 24, autoCollect = true },
+	{ id = "satay", name = "Satay Grill", price = 9000, income = 60, requires = { "kaya_shelf" }, kind = "grill", x = -24, z = 0 },
+	{ id = "cendol", name = "Cendol Cart", price = 15000, income = 90, requires = { "satay" }, kind = "cart", x = 24, z = 0 },
+
+	-- The mamak corner
+	{ id = "roti_canai", name = "Roti Canai Griddle", price = 25000, income = 140, requires = { "cendol" }, kind = "griddle", x = -24, z = 12 },
+	{ id = "maggi_goreng", name = "Maggi Goreng Wok", price = 40000, income = 210, requires = { "roti_canai" }, kind = "wok", x = 24, z = 12 },
+	{ id = "tv", name = "Football on TV", price = 65000, income = 320, requires = { "maggi_goreng" }, kind = "tv", x = 0, z = -30.5, y = 11, padX = 0, padZ = -12 },
+	{ id = "neon_sign", name = "Neon Signboard", price = 100000, income = 480, requires = { "tv" }, kind = "neon", x = 0, z = 32, y = 16.9, padX = -12, padZ = 24 },
+
+	-- Famous in the whole town
+	{ id = "durian", name = "Durian Stall", price = 170000, income = 750, requires = { "neon_sign" }, kind = "durian", x = -12, z = 12 },
+	{ id = "aircon", name = "Air-Cond", price = 280000, income = 1150, requires = { "durian" }, kind = "aircon", x = 0, z = 0, y = 11, padX = 0, padZ = -5 },
+	{ id = "pasar_malam", name = "Pasar Malam Lot", price = 450000, income = 1800, requires = { "aircon" }, kind = "tent", x = 12, z = 12 },
+	{ id = "delivery", name = "Delivery Riders", price = 750000, income = 2800, requires = { "pasar_malam" }, kind = "riders", x = 22, z = 37, padX = 24, padZ = 24 },
+	{ id = "franchise", name = "Franchise Licence", price = 1200000, income = 4500, requires = { "delivery" }, kind = "plaque", x = 0, z = 13, padX = 0, padZ = 18, unlocksBranch = true },
+}
+
+local byId: { [string]: Item } = {}
+for _, item in items do
+	byId[item.id] = item
+end
+
+return {
+	items = items,
+	byId = byId,
+	starter = "kopi_stall", -- every new kopitiam gets this for free
+}
+]]></string>
+        </Properties>
+      </Item>
+      <Item class="ModuleScript" referent="4">
+        <Properties>
+          <string name="Name">Config</string>
+          <string name="Source"><![CDATA[--!strict
+-- Tuning numbers for the whole game. Change them here, nowhere else.
+return {
+	DataStoreName = "KopitiamTycoon_v1",
+
+	-- The map: plots sit in a ring around the plaza, each facing the middle.
+	PlotCount = 6,
+	PlotSize = 64,
+	PlotRadius = 120,
+
+	-- The till holds this many seconds of income before it is full (and never less than the minimum).
+	TillSeconds = 300,
+	TillMinimum = 50,
+
+	-- Each new branch adds this much to the income multiplier (0.5 = +50%).
+	BranchBonus = 0.5,
+
+	-- Ah Ma's angpow: how often, and how many seconds of income it is worth.
+	AngpowHours = 20,
+	AngpowSeconds = 120,
+	AngpowMinimum = 50,
+
+	-- While a player is away, their kopitiam keeps earning this share of its income, for at most this long.
+	OfflineShare = 0.5,
+	OfflineHours = 8,
+	OfflineMinimumSeconds = 120, -- shorter breaks earn nothing, so rejoining is not a trick
+
+	-- Customers who walk in, order, and leave. Only for looks: income does not depend on them.
+	CustomerMax = 6,
+	CustomerEverySeconds = 4,
+	CustomerWalkSpeed = 9, -- studs a second
+
+	-- The Robux shop. Make each one in the Creator Hub (your game > Monetization), then paste its ID here.
+	-- Anything left at 0 does not show in the shop, so the game works before any of them exist.
+	GamePasses = {
+		DoubleCash = 0, -- everything earns x2, forever
+		AutoCollect = 0, -- the till empties itself from day one, without hiring Ah Boy
+	},
+	Products = { -- bought again and again; each gives this many seconds of the player's income, at least the minimum
+		CashSmall = { id = 0, seconds = 900, minimum = 500 },
+		CashBig = { id = 0, seconds = 7200, minimum = 5000 },
+	},
+
+	-- Sounds. Pick free ones in the Creator Store (Toolbox > Audio), copy the ID, and write "rbxassetid://ID".
+	-- Anything left empty stays silent.
+	Sounds = {
+		Buy = "",
+		Collect = "",
+		Angpow = "",
+		Branch = "",
+		Music = "", -- plays on a loop, quietly
+	},
+
+	AutosaveSeconds = 90,
+	StartCash = 0,
+}
+]]></string>
+        </Properties>
+      </Item>
+      <Item class="ModuleScript" referent="5">
+        <Properties>
+          <string name="Name">Economy</string>
+          <string name="Source"><![CDATA[--!strict
+-- The money rules. No Roblox calls in here, so it can be tested on its own.
+local Catalog = require(script.Parent.Catalog)
+local Config = require(script.Parent.Config)
+
+local Economy = {}
+
+export type Owned = { [string]: boolean }
+
+-- Each branch you have opened makes every ringgit worth more.
+function Economy.multiplier(branches: number): number
+	return 1 + math.max(0, branches) * Config.BranchBonus
+end
+
+-- `boost` is 2 with the Double Cash pass, otherwise 1.
+function Economy.incomePerSecond(owned: Owned, branches: number, boost: number?): number
+	local base = 0
+	for id in owned do
+		local item = Catalog.byId[id]
+		if item then
+			base += item.income
+		end
+	end
+	return base * Economy.multiplier(branches) * (boost or 1)
+end
+
+function Economy.tillCapacity(incomePerSecond: number): number
+	return math.max(Config.TillMinimum, math.floor(incomePerSecond * Config.TillSeconds))
+end
+
+function Economy.requirementsMet(item: Catalog.Item, owned: Owned): boolean
+	for _, id in item.requires do
+		if not owned[id] then
+			return false
+		end
+	end
+	return true
+end
+
+-- Returns true, or false and a short reason the player can read.
+function Economy.canBuy(id: string, owned: Owned, cash: number): (boolean, string?)
+	local item = Catalog.byId[id]
+	if not item then
+		return false, "That is not for sale."
+	end
+	if owned[id] then
+		return false, "You already have that."
+	end
+	if not Economy.requirementsMet(item, owned) then
+		return false, "Buy the earlier upgrades first."
+	end
+	if cash < item.price then
+		return false, "Not enough ringgit yet."
+	end
+	return true, nil
+end
+
+-- The buy pads to show: not owned yet, and everything they need is owned.
+function Economy.availableItems(owned: Owned): { Catalog.Item }
+	local list = {}
+	for _, item in Catalog.items do
+		if not owned[item.id] and Economy.requirementsMet(item, owned) then
+			table.insert(list, item)
+		end
+	end
+	return list
+end
+
+function Economy.autoCollects(owned: Owned): boolean
+	for id in owned do
+		local item = Catalog.byId[id]
+		if item and item.autoCollect then
+			return true
+		end
+	end
+	return false
+end
+
+function Economy.canOpenBranch(owned: Owned): boolean
+	for id in owned do
+		local item = Catalog.byId[id]
+		if item and item.unlocksBranch then
+			return true
+		end
+	end
+	return false
+end
+
+-- What a kopitiam earns while its owner is away: a share of its income, for at most a few hours.
+function Economy.offlineEarnings(incomePerSecond: number, secondsAway: number): number
+	if secondsAway < Config.OfflineMinimumSeconds then
+		return 0
+	end
+	local seconds = math.min(secondsAway, Config.OfflineHours * 3600)
+	return math.floor(seconds * incomePerSecond * Config.OfflineShare)
+end
+
+-- A cash pack from the Robux shop: some seconds of income, never less than its minimum.
+function Economy.cashPack(incomePerSecond: number, seconds: number, minimum: number): number
+	return math.max(minimum, math.floor(incomePerSecond * seconds))
+end
+
+function Economy.angpow(incomePerSecond: number): number
+	return math.max(Config.AngpowMinimum, math.floor(incomePerSecond * Config.AngpowSeconds))
+end
+
+return Economy
+]]></string>
+        </Properties>
+      </Item>
+      <Item class="ModuleScript" referent="6">
+        <Properties>
+          <string name="Name">Format</string>
+          <string name="Source"><![CDATA[--!strict
+-- Ringgit as players read it: RM 950, RM 1,250, RM 12.5K, RM 3.20M.
+local Format = {}
+
+local function commas(n: number): string
+	local digits = tostring(math.floor(n))
+	local out = digits:reverse():gsub("(%d%d%d)", "%1,"):reverse()
+	if out:sub(1, 1) == "," then
+		out = out:sub(2)
+	end
+	return out
+end
+
+function Format.money(amount: number): string
+	local n = math.max(0, math.floor(amount))
+	if n < 10000 then
+		return "RM " .. commas(n)
+	elseif n < 1000000 then
+		return string.format("RM %.1fK", n / 1000)
+	elseif n < 1000000000 then
+		return string.format("RM %.2fM", n / 1000000)
+	end
+	return string.format("RM %.2fB", n / 1000000000)
+end
+
+return Format
+]]></string>
+        </Properties>
+      </Item>
+      <Item class="ModuleScript" referent="7">
+        <Properties>
+          <string name="Name">SaveData</string>
+          <string name="Source"><![CDATA[--!strict
+-- What gets saved for each player, and a cleaner that makes any loaded value safe to use.
+local Catalog = require(script.Parent.Catalog)
+local Config = require(script.Parent.Config)
+
+export type Data = {
+	version: number,
+	cash: number,
+	branches: number,
+	owned: { string },
+	lastAngpow: number,
+	lastSeen: number, -- os.time() when last saved, for offline earnings; 0 for a new player
+	receipts: { string }, -- the latest Robux purchases already given, so none is given twice
+}
+
+local SaveData = {}
+
+SaveData.VERSION = 2
+SaveData.MAX_RECEIPTS = 50
+
+function SaveData.default(): Data
+	return { version = SaveData.VERSION, cash = Config.StartCash, branches = 0, owned = { Catalog.starter }, lastAngpow = 0, lastSeen = 0, receipts = {} }
+end
+
+local function number(value: any, fallback: number): number
+	if type(value) ~= "number" or value ~= value or value < 0 or value == math.huge then
+		return fallback
+	end
+	return value
+end
+
+-- Never trust what comes back from storage: wrong types, unknown items and duplicates are dropped.
+function SaveData.clean(raw: any): Data
+	local data = SaveData.default()
+	if type(raw) ~= "table" then
+		return data
+	end
+	data.cash = math.floor(number(raw.cash, data.cash))
+	data.branches = math.floor(number(raw.branches, 0))
+	data.lastAngpow = math.floor(number(raw.lastAngpow, 0))
+	data.lastSeen = math.floor(number(raw.lastSeen, 0))
+	if type(raw.receipts) == "table" then
+		for _, receipt in raw.receipts do
+			if type(receipt) == "string" and #receipt <= 100 and #data.receipts < SaveData.MAX_RECEIPTS then
+				table.insert(data.receipts, receipt)
+			end
+		end
+	end
+	local seen: { [string]: boolean } = { [Catalog.starter] = true }
+	local owned = { Catalog.starter }
+	if type(raw.owned) == "table" then
+		for _, id in raw.owned do
+			if type(id) == "string" and Catalog.byId[id] and not seen[id] then
+				seen[id] = true
+				table.insert(owned, id)
+			end
+		end
+	end
+	data.owned = owned
+	return data
+end
+
+return SaveData
+]]></string>
+        </Properties>
+      </Item>
+    </Item>
+  </Item>
+  <Item class="ServerScriptService" referent="8">
+    <Properties>
+      <string name="Name">ServerScriptService</string>
+    </Properties>
+    <Item class="Script" referent="9">
+      <Properties>
+        <string name="Name">Server</string>
+        <token name="RunContext">0</token>
+        <string name="Source"><![CDATA[-- Kopitiam Tycoon: the server. Builds the map, gives each player a plot, runs the money and saves progress.
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+local Config = require(Shared:WaitForChild("Config"))
+local Format = require(Shared:WaitForChild("Format"))
+
+local AhMa = require(script.AhMa)
+local Remotes = require(script.Remotes)
+local Shop = require(script.Shop)
+local Store = require(script.Store)
+local Tycoon = require(script.Tycoon)
+local World = require(script.World)
+
+local remotes = Remotes.create()
+local world = World.build()
+local random = Random.new()
+
+local tycoons = {} -- player -> their Tycoon
+local freePlots = table.clone(world.plots)
+local lastBranchRequest = {} -- player -> clock time, to ignore button mashing
+
+local function save(player)
+	local tycoon = tycoons[player]
+	if tycoon and tycoon.canSave then
+		return Store.save(player.UserId, tycoon:snapshot())
+	end
+	return false
+end
+
+local function placeAtPlot(tycoon, character)
+	local root = character:WaitForChild("HumanoidRootPart", 10)
+	if root and tycoon.alive then
+		task.wait(0.1) -- let the default spawn finish first
+		character:PivotTo(tycoon:spawnCFrame())
+	end
+end
+
+local joining = {} -- player -> true while their save loads, so nobody is set up twice
+
+local function onPlayerAdded(player)
+	if joining[player] or tycoons[player] then
+		return
+	end
+	joining[player] = true
+	local plot = table.remove(freePlots, 1)
+	if not plot then
+		joining[player] = nil
+		player:Kick("Every kopitiam lot here is taken. Please join another server.")
+		return
+	end
+
+	local data, loaded = Store.load(player.UserId)
+	joining[player] = nil
+	if player.Parent == nil then -- they left while we were loading
+		table.insert(freePlots, plot)
+		return
+	end
+
+	local tycoon = Tycoon.new(player, plot, data, remotes)
+	tycoon.canSave = loaded
+	tycoons[player] = tycoon
+	tycoon:start()
+
+	player.CharacterAdded:Connect(function(character)
+		placeAtPlot(tycoon, character)
+	end)
+	if player.Character then
+		task.spawn(placeAtPlot, tycoon, player.Character)
+	end
+
+	Shop.checkPasses(player)
+	if loaded then
+		local away = tycoon:welcomeBack(os.time())
+		if away > 0 then
+			tycoon:notify("Welcome back! While you were away, your kopitiam earned " .. Format.money(away) .. ".")
+		else
+			tycoon:notify("Welcome to your kopitiam! Step on a green pad to buy your next upgrade.")
+		end
+	else
+		tycoon:notify("Your save could not be loaded, so this visit will not be saved. Try again later.")
+	end
+end
+
+local function onPlayerRemoving(player)
+	joining[player] = nil
+	local tycoon = tycoons[player]
+	if not tycoon then
+		return
+	end
+	save(player)
+	tycoons[player] = nil
+	lastBranchRequest[player] = nil
+	tycoon:destroy()
+	table.insert(freePlots, tycoon.plot)
+	table.sort(freePlots, function(a, b)
+		return a.index < b.index
+	end)
+end
+
+-- Ah Ma: an angpow when one is due, otherwise a tip.
+AhMa.build(world.map, function(player)
+	local tycoon = tycoons[player]
+	if not tycoon then
+		return
+	end
+	local amount = tycoon:claimAngpow(os.time())
+	if amount then
+		remotes.AhMa:FireClient(player, "Angpow for you: " .. Format.money(amount) .. ". Don't spend it all on bubble tea.")
+	else
+		remotes.AhMa:FireClient(player, AhMa.tip(random))
+	end
+end)
+
+remotes.OpenBranch.OnServerEvent:Connect(function(player)
+	local now = os.clock()
+	if now - (lastBranchRequest[player] or 0) < 1 then
+		return
+	end
+	lastBranchRequest[player] = now
+	local tycoon = tycoons[player]
+	if tycoon and tycoon:openBranch() then
+		task.spawn(save, player)
+	end
+end)
+
+Shop.start(function(player)
+	return tycoons[player]
+end, save)
+
+-- Income a few times a second is plenty; customers move every frame so they walk smoothly.
+local sinceStep = 0
+RunService.Heartbeat:Connect(function(dt)
+	for _, tycoon in tycoons do
+		tycoon:stepCustomers(dt)
+	end
+	sinceStep += dt
+	if sinceStep < 0.25 then
+		return
+	end
+	local elapsed = sinceStep
+	sinceStep = 0
+	for _, tycoon in tycoons do
+		tycoon:step(elapsed)
+	end
+end)
+
+-- Autosave.
+task.spawn(function()
+	while true do
+		task.wait(Config.AutosaveSeconds)
+		for player in tycoons do
+			task.spawn(save, player)
+		end
+	end
+end)
+
+-- Save everyone when the server shuts down.
+game:BindToClose(function()
+	local pending = 0
+	for player in tycoons do
+		pending += 1
+		task.spawn(function()
+			save(player)
+			pending -= 1
+		end)
+	end
+	local waited = 0
+	while pending > 0 and waited < 20 do
+		waited += task.wait(0.1)
+	end
+end)
+
+Players.PlayerAdded:Connect(onPlayerAdded)
+Players.PlayerRemoving:Connect(onPlayerRemoving)
+for _, player in Players:GetPlayers() do -- anyone who joined before this script started
+	task.spawn(onPlayerAdded, player)
+end
+]]></string>
+      </Properties>
+      <Item class="ModuleScript" referent="10">
+        <Properties>
+          <string name="Name">AhMa</string>
+          <string name="Source"><![CDATA[-- Ah Ma sits in the plaza. Talk to her for a tip, and once a day for an angpow.
+local Build = require(script.Parent.Build)
+
+local C = Build.Colors
+local V = Vector3.new
+
+local TIPS = {
+	"Aiyo, your till is full again. Go and collect lah.",
+	"Money in your pocket earns nothing. Buy the next upgrade.",
+	"When Ah Boy starts work, you never walk to the till again.",
+	"Green pad means you can afford it. Red pad means work harder.",
+	"A Franchise Licence lets you open a new branch. Every branch makes every ringgit worth more.",
+	"Ah Ma started with one kopi stall also. Slowly, slowly.",
+	"Ah Ma is 80 and Ah Ma has helpers. What about you?",
+	"Come back tomorrow. Ah Ma got angpow for you.",
+}
+
+local AhMa = {}
+
+-- Builds her at the middle of the plaza. `onTalk(player)` must return what she says.
+function AhMa.build(parent, onTalk)
+	local folder = Instance.new("Folder")
+	folder.Name = "AhMa"
+	local spot = CFrame.new(0, 0.3, 0)
+
+	-- Her kopitiam table and umbrella.
+	Build.cylinder(folder, spot * CFrame.new(4, 3, 0), 0.35, 5, C.Marble, Enum.Material.Marble)
+	Build.cylinder(folder, spot * CFrame.new(4, 1.45, 0), 2.9, 0.7, C.DarkWood, Enum.Material.Wood)
+	Build.cylinder(folder, spot * CFrame.new(4, 7, 0), 9, 0.4, C.Dark)
+	Build.cylinder(folder, spot * CFrame.new(4, 11.4, 0), 0.5, 13, C.Red)
+	Build.cylinder(folder, spot * CFrame.new(4.8, 3.5, 0.4), 0.6, 0.6, C.White) -- her kopi
+	Build.cylinder(folder, spot * CFrame.new(7.4, 1, 0), 2, 1.6, C.Wood, Enum.Material.Wood) -- a stool for visitors
+
+	local _, torso = Build.person(folder, spot * CFrame.new(0, 0.6, 0.2), {
+		name = "Ah Ma",
+		shirt = Color3.fromRGB(226, 120, 150), -- floral pink blouse
+		pants = Color3.fromRGB(70, 70, 90),
+		hair = Color3.fromRGB(200, 200, 205),
+		bun = true,
+	})
+	Build.part(folder, { Size = V(1.05, 0.25, 1.05), CFrame = spot * CFrame.new(1.45, 2.4, 0.2), Color = Color3.fromRGB(60, 170, 110) }) -- jade bangle
+	Build.floatingText(torso, "Ah Ma", { lift = 3.6, width = 6, height = 1.5, color = C.Gold, distance = 140 })
+
+	local prompt = Instance.new("ProximityPrompt")
+	prompt.ObjectText = "Ah Ma"
+	prompt.ActionText = "Talk"
+	prompt.HoldDuration = 0
+	prompt.MaxActivationDistance = 14
+	prompt.RequiresLineOfSight = false
+	prompt.Parent = torso
+	prompt.Triggered:Connect(onTalk)
+
+	folder.Parent = parent
+	return folder
+end
+
+function AhMa.tip(random)
+	return TIPS[random:NextInteger(1, #TIPS)]
+end
+
+AhMa.tips = TIPS
+
+return AhMa
+]]></string>
+        </Properties>
+      </Item>
+      <Item class="ModuleScript" referent="11">
+        <Properties>
+          <string name="Name">Build</string>
+          <string name="Source"><![CDATA[-- Small helpers for building things out of plain parts, so the map needs no imported models.
+local Build = {}
+
+Build.Colors = {
+	Wood = Color3.fromRGB(133, 94, 66),
+	DarkWood = Color3.fromRGB(92, 64, 45),
+	Marble = Color3.fromRGB(236, 233, 226),
+	Cream = Color3.fromRGB(240, 230, 206),
+	Tile = Color3.fromRGB(226, 216, 190),
+	Green = Color3.fromRGB(46, 125, 87),
+	DarkGreen = Color3.fromRGB(30, 84, 60),
+	Red = Color3.fromRGB(196, 58, 49),
+	Steel = Color3.fromRGB(176, 182, 188),
+	Dark = Color3.fromRGB(45, 45, 48),
+	Gold = Color3.fromRGB(232, 188, 70),
+	Skin = Color3.fromRGB(245, 205, 48), -- the classic blocky yellow, for every character
+	Grass = Color3.fromRGB(96, 150, 84),
+	Stone = Color3.fromRGB(150, 150, 146),
+	White = Color3.fromRGB(250, 250, 250),
+	Orange = Color3.fromRGB(240, 140, 40),
+	Pandan = Color3.fromRGB(120, 180, 90),
+	Volt = Color3.fromRGB(210, 255, 0),
+}
+
+-- One anchored part. `props` needs Size and CFrame; everything else is optional.
+function Build.part(parent, props)
+	local part = Instance.new("Part")
+	part.Anchored = true
+	part.TopSurface = Enum.SurfaceType.Smooth
+	part.BottomSurface = Enum.SurfaceType.Smooth
+	part.Material = props.Material or Enum.Material.SmoothPlastic
+	part.Color = props.Color or Build.Colors.Cream
+	part.Size = props.Size
+	part.CFrame = props.CFrame
+	if props.Shape then
+		part.Shape = props.Shape
+	end
+	if props.Transparency then
+		part.Transparency = props.Transparency
+	end
+	if props.CanCollide ~= nil then
+		part.CanCollide = props.CanCollide
+	end
+	part.Name = props.Name or "Part"
+	part.Parent = parent
+	return part
+end
+
+-- An upright cylinder: `height` tall and `diameter` wide, centred on `cframe`.
+function Build.cylinder(parent, cframe, height, diameter, color, material)
+	return Build.part(parent, {
+		Shape = Enum.PartType.Cylinder,
+		Size = Vector3.new(height, diameter, diameter),
+		CFrame = cframe * CFrame.Angles(0, 0, math.rad(90)),
+		Color = color,
+		Material = material,
+	})
+end
+
+function Build.ball(parent, cframe, diameter, color, material)
+	return Build.part(parent, {
+		Shape = Enum.PartType.Ball,
+		Size = Vector3.new(diameter, diameter, diameter),
+		CFrame = cframe,
+		Color = color,
+		Material = material,
+	})
+end
+
+-- Text that floats above a part and always faces the camera.
+function Build.floatingText(part, text, options)
+	options = options or {}
+	local gui = Instance.new("BillboardGui")
+	gui.Name = "Label"
+	gui.Size = UDim2.fromScale(options.width or 9, options.height or 2.4)
+	gui.StudsOffset = Vector3.new(0, options.lift or 3, 0)
+	gui.AlwaysOnTop = options.onTop or false
+	gui.MaxDistance = options.distance or 90
+	local label = Instance.new("TextLabel")
+	label.Name = "Text"
+	label.Size = UDim2.fromScale(1, 1)
+	label.BackgroundTransparency = 1
+	label.Font = Enum.Font.GothamBold
+	label.TextScaled = true
+	label.TextColor3 = options.color or Build.Colors.White
+	label.TextStrokeTransparency = 0.4
+	label.Text = text
+	label.Parent = gui
+	gui.Parent = part
+	return label
+end
+
+-- Text painted on one face of a part, like a signboard.
+function Build.sign(part, text, face, textColor)
+	local gui = Instance.new("SurfaceGui")
+	gui.Name = "Sign"
+	gui.Face = face
+	gui.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
+	gui.PixelsPerStud = 40
+	local label = Instance.new("TextLabel")
+	label.Name = "Text"
+	label.Size = UDim2.fromScale(1, 1)
+	label.BackgroundTransparency = 1
+	label.Font = Enum.Font.GothamBold
+	label.TextScaled = true
+	label.TextColor3 = textColor or Build.Colors.White
+	label.Text = text
+	label.Parent = gui
+	gui.Parent = part
+	return label
+end
+
+-- A blocky person standing at `cframe` (feet on the floor), facing its +Z.
+function Build.person(parent, cframe, options)
+	options = options or {}
+	local C = Build.Colors
+	local model = Instance.new("Model")
+	model.Name = options.name or "Person"
+	local shirt = options.shirt or C.Green
+	local pants = options.pants or C.Dark
+	Build.part(model, { Size = Vector3.new(0.9, 2, 1), CFrame = cframe * CFrame.new(-0.5, 1, 0), Color = pants })
+	Build.part(model, { Size = Vector3.new(0.9, 2, 1), CFrame = cframe * CFrame.new(0.5, 1, 0), Color = pants })
+	local torso = Build.part(model, { Name = "Torso", Size = Vector3.new(2, 2, 1), CFrame = cframe * CFrame.new(0, 3, 0), Color = shirt })
+	Build.part(model, { Size = Vector3.new(0.9, 2, 0.9), CFrame = cframe * CFrame.new(-1.45, 3, 0), Color = shirt })
+	Build.part(model, { Size = Vector3.new(0.9, 2, 0.9), CFrame = cframe * CFrame.new(1.45, 3, 0), Color = shirt })
+	Build.part(model, { Name = "Head", Size = Vector3.new(1.3, 1.3, 1.3), CFrame = cframe * CFrame.new(0, 4.65, 0), Color = C.Skin })
+	if options.hair then
+		Build.part(model, { Size = Vector3.new(1.4, 0.5, 1.4), CFrame = cframe * CFrame.new(0, 5.4, 0), Color = options.hair })
+	end
+	if options.bun then
+		Build.ball(model, cframe * CFrame.new(0, 5.6, -0.6), 0.8, options.hair or C.Steel)
+	end
+	model.PrimaryPart = torso
+	model.Parent = parent
+	return model, torso
+end
+
+return Build
+]]></string>
+        </Properties>
+      </Item>
+      <Item class="ModuleScript" referent="12">
+        <Properties>
+          <string name="Name">Customers</string>
+          <string name="Source"><![CDATA[-- Customers who walk into one player's kopitiam, stop at something the player owns, say a word, pay at the
+-- till and leave. They are only for looks: income does not depend on them. Each moves every server frame.
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+local Catalog = require(Shared:WaitForChild("Catalog"))
+local Config = require(Shared:WaitForChild("Config"))
+
+local Build = require(script.Parent.Build)
+
+local C = Build.Colors
+local SHIRTS = {
+	C.Red, C.Green, C.White, Color3.fromRGB(70, 110, 190), Color3.fromRGB(240, 200, 60), Color3.fromRGB(150, 90, 160),
+	Color3.fromRGB(230, 120, 150), C.Orange,
+}
+local HAIR = { C.Dark, Color3.fromRGB(60, 40, 30), C.Steel }
+local LINES = {
+	"Kopi O kosong satu!", "Teh tarik kurang manis, boss.", "Sedap!", "Boss, tapau ah.", "Roti bakar extra kaya!",
+	"Wah, so cold the aircon!", "Same as usual.", "Can add egg ah?", "Milo ais, thanks.", "Fuyoh!", "Aiyo, so long the queue.",
+	"Two half-boiled, one kopi.",
+}
+local SPOT_KINDS = { -- where a customer can stop: in front of these, never on walls, fans or the ceiling
+	stall = true, table = true, toaster = true, eggs = true, tehtarik = true, wok = true, shelf = true, grill = true,
+	cart = true, griddle = true, durian = true, tent = true,
+}
+
+local Customers = {}
+Customers.__index = Customers
+Customers.LINES = LINES
+
+-- `floor` is the plot's CFrame at floor height; `ownedFn` returns the owner's { [id] = true }.
+function Customers.new(parent, floor, ownedFn, random)
+	local self = setmetatable({}, Customers)
+	local folder = Instance.new("Folder")
+	folder.Name = "Customers"
+	folder.Parent = parent
+	self.folder = folder
+	self.floor = floor
+	self.ownedFn = ownedFn
+	self.random = random
+	self.list = {}
+	self.sinceSpawn = Config.CustomerEverySeconds -- the first one walks in straight away
+	self.count = 0 -- customers ever served, also used to name them
+	return self
+end
+
+-- How many can be inside at once: more as the shop grows.
+function Customers:limit()
+	local owned = 0
+	for _ in self.ownedFn() do
+		owned += 1
+	end
+	return math.min(Config.CustomerMax, 1 + math.floor(owned / 3))
+end
+
+-- Somewhere to stand: just in front of a random thing the player owns that serves food or seats people.
+function Customers:pickSpot()
+	local spots = {}
+	for id in self.ownedFn() do
+		local item = Catalog.byId[id]
+		if item and SPOT_KINDS[item.kind] then
+			table.insert(spots, item)
+		end
+	end
+	if #spots == 0 then
+		return nil
+	end
+	local item = spots[self.random:NextInteger(1, #spots)]
+	local side = item.kind == "table" and (self.random:NextInteger(0, 1) == 0 and -3.6 or 3.6) or 0
+	local depth = item.kind == "table" and 0 or 4.5
+	return Vector3.new(item.x + side, 0, item.z + depth)
+end
+
+function Customers:spawn()
+	local spot = self:pickSpot()
+	if not spot then
+		return
+	end
+	self.count += 1
+	local half = Config.PlotSize / 2
+	local door = Vector3.new(self.random:NextInteger(-2, 2), 0, half + 4)
+	local till = Vector3.new(self.random:NextInteger(-2, 2), 0, 26.5)
+	local model = Build.person(self.folder, self.floor * CFrame.new(door), {
+		name = "Customer" .. self.count,
+		shirt = SHIRTS[self.random:NextInteger(1, #SHIRTS)],
+		hair = HAIR[self.random:NextInteger(1, #HAIR)],
+	})
+	for _, part in model:GetDescendants() do
+		if part:IsA("BasePart") then
+			part.CanCollide = false
+			part.CanTouch = false -- never set off a buy pad
+		end
+	end
+	table.insert(self.list, {
+		model = model,
+		at = door,
+		-- walk in, stop and order, pay at the till, walk out
+		route = { { to = spot, wait = self.random:NextInteger(4, 8), say = true }, { to = till, wait = 1 }, { to = door } },
+		leg = 1,
+		waited = 0,
+		bob = 0,
+	})
+end
+
+function Customers:say(model, line)
+	local head = model:FindFirstChild("Head")
+	if head then
+		local label = Build.floatingText(head, line, { lift = 2.2, width = 8, height = 1.4, distance = 60 })
+		task.delay(2.5, function()
+			if label.Parent then
+				label.Parent:Destroy()
+			end
+		end)
+	end
+end
+
+-- Moves everyone along. Called every server frame.
+function Customers:step(dt)
+	self.sinceSpawn += dt
+	if self.sinceSpawn >= Config.CustomerEverySeconds and #self.list < self:limit() then
+		self.sinceSpawn = 0
+		self:spawn()
+	end
+	for i = #self.list, 1, -1 do
+		local c = self.list[i]
+		local leg = c.route[c.leg]
+		local gap = leg.to - c.at
+		local distance = gap.Magnitude
+		if distance > 0.05 then
+			local move = math.min(distance, Config.CustomerWalkSpeed * dt)
+			c.at += gap.Unit * move
+			c.bob += dt * 12
+			local facing = CFrame.new(c.at, c.at + gap.Unit)
+			-- A model's pivot is its torso (the PrimaryPart), which sits 3 studs above the feet.
+			c.model:PivotTo(self.floor * facing * CFrame.new(0, 3 + math.abs(math.sin(c.bob)) * 0.25, 0))
+		else
+			if c.waited == 0 and leg.say then
+				self:say(c.model, LINES[self.random:NextInteger(1, #LINES)])
+			end
+			c.waited += dt
+			if c.waited >= (leg.wait or 0) then
+				c.waited = 0
+				c.leg += 1
+				if c.leg > #c.route then
+					c.model:Destroy()
+					table.remove(self.list, i)
+				end
+			end
+		end
+	end
+end
+
+function Customers:clear()
+	for _, c in self.list do
+		c.model:Destroy()
+	end
+	table.clear(self.list)
+end
+
+function Customers:destroy()
+	self:clear()
+	self.folder:Destroy()
+end
+
+return Customers
+]]></string>
+        </Properties>
+      </Item>
+      <Item class="ModuleScript" referent="13">
+        <Properties>
+          <string name="Name">Models</string>
+          <string name="Source"><![CDATA[-- What each thing you buy looks like, built from plain parts.
+-- Every builder gets a Model to fill and `at(x, y, z)`, which gives a spot measured from the item's place
+-- on the floor: +x right, +y up, +z toward the front of the shop.
+local Build = require(script.Parent.Build)
+local Config = require(game:GetService("ReplicatedStorage"):WaitForChild("Shared"):WaitForChild("Config"))
+
+local C = Build.Colors
+local V = Vector3.new
+local FRONT = Enum.NormalId.Back -- a part's "Back" face points to +z, the front of the shop
+local HALF = Config.PlotSize / 2
+
+local function counter(model, at, width, color)
+	Build.part(model, { Size = V(width, 3.4, 3), CFrame = at(0, 1.7, 0), Color = color or C.Wood, Material = Enum.Material.Wood })
+	Build.part(model, { Size = V(width + 0.4, 0.3, 3.4), CFrame = at(0, 3.55, 0), Color = C.Marble, Material = Enum.Material.Marble })
+end
+
+local builders = {}
+
+-- A hawker stall with an awning and a signboard.
+function builders.stall(model, at, item)
+	counter(model, at, 10)
+	for _, x in { -4.7, 4.7 } do
+		Build.part(model, { Size = V(0.5, 8.6, 0.5), CFrame = at(x, 4.3, -1.2), Color = C.DarkWood, Material = Enum.Material.Wood })
+	end
+	Build.part(model, { Size = V(11, 0.4, 5), CFrame = at(0, 8.8, 0.4), Color = C.Green })
+	Build.part(model, { Size = V(11, 0.9, 0.3), CFrame = at(0, 8.2, 2.9), Color = C.Cream })
+	local board = Build.part(model, { Size = V(9, 1.6, 0.3), CFrame = at(0, 10, 0), Color = C.DarkGreen })
+	Build.sign(board, item.name, FRONT, C.Gold)
+	Build.cylinder(model, at(-3, 4.5, 0), 1.6, 1.3, C.Steel, Enum.Material.Metal) -- kettle
+	for i = 0, 2 do
+		Build.cylinder(model, at(1 + i * 1.2, 4, 0.4), 0.7, 0.7, C.White) -- cups
+	end
+end
+
+-- A round marble table with four stools.
+function builders.table(model, at)
+	Build.cylinder(model, at(0, 3, 0), 0.35, 5, C.Marble, Enum.Material.Marble)
+	Build.cylinder(model, at(0, 1.45, 0), 2.9, 0.7, C.DarkWood, Enum.Material.Wood)
+	Build.cylinder(model, at(0, 0.15, 0), 0.3, 2.4, C.DarkWood, Enum.Material.Wood)
+	for _, p in { { 3.6, 0 }, { -3.6, 0 }, { 0, 3.6 }, { 0, -3.6 } } do
+		Build.cylinder(model, at(p[1], 1, p[2]), 2, 1.5, C.Wood, Enum.Material.Wood)
+	end
+	Build.cylinder(model, at(0.8, 3.5, 0.3), 0.6, 0.6, C.White) -- a cup of kopi
+	Build.cylinder(model, at(0.8, 3.75, 0.3), 0.1, 0.45, C.DarkWood)
+end
+
+function builders.toaster(model, at)
+	counter(model, at, 7)
+	Build.part(model, { Size = V(2.4, 1.6, 1.4), CFrame = at(-1.2, 4.5, 0), Color = C.Steel, Material = Enum.Material.Metal })
+	for _, x in { -1.7, -0.7 } do
+		Build.part(model, { Size = V(0.3, 1, 1), CFrame = at(x, 5.4, 0), Color = Color3.fromRGB(210, 160, 90) })
+	end
+	Build.part(model, { Size = V(2, 0.2, 1.6), CFrame = at(2, 3.8, 0), Color = C.White }) -- plate
+	Build.part(model, { Size = V(1.2, 0.3, 1.2), CFrame = at(2, 4.05, 0), Color = Color3.fromRGB(210, 160, 90) })
+	Build.part(model, { Size = V(1.1, 0.12, 1.1), CFrame = at(2, 4.26, 0), Color = C.Pandan }) -- kaya
+end
+
+function builders.eggs(model, at)
+	counter(model, at, 7)
+	Build.cylinder(model, at(-1.5, 4.4, 0), 1.4, 2, C.Steel, Enum.Material.Metal) -- pot
+	Build.part(model, { Size = V(2.6, 0.2, 1.6), CFrame = at(2, 3.8, 0), Color = C.DarkWood })
+	for i = 0, 3 do
+		Build.ball(model, at(1.1 + i * 0.6, 4.2, 0), 0.6, C.White)
+	end
+end
+
+function builders.tehtarik(model, at)
+	counter(model, at, 8)
+	Build.cylinder(model, at(-2, 5.2, 0), 3, 1.8, C.Steel, Enum.Material.Metal) -- urn
+	Build.cylinder(model, at(-2, 6.85, 0), 0.3, 1.2, C.Dark)
+	for i = 0, 2 do
+		Build.cylinder(model, at(0.8 + i * 1.1, 4.2, 0.3), 1, 0.8, Color3.fromRGB(200, 140, 80), Enum.Material.Glass)
+	end
+end
+
+-- Walls on three sides, a tiled stripe, and beams overhead for the fans. The front stays open.
+function builders.walls(model, at)
+	local h = 14
+	local function wall(size, cf)
+		Build.part(model, { Size = size, CFrame = cf, Color = C.Cream })
+	end
+	wall(V(HALF * 2, h, 1), at(0, h / 2, -HALF + 0.5))
+	wall(V(1, h, HALF * 2 - 1), at(-HALF + 0.5, h / 2, 0.5))
+	wall(V(1, h, HALF * 2 - 1), at(HALF - 0.5, h / 2, 0.5))
+	Build.part(model, { Size = V(HALF * 2 - 2, 3, 0.2), CFrame = at(0, 1.5, -HALF + 1.1), Color = C.Green }) -- tile stripe
+	for _, x in { -HALF + 1.1, HALF - 1.1 } do
+		Build.part(model, { Size = V(0.2, 3, HALF * 2 - 2), CFrame = at(x, 1.5, 0.5), Color = C.Green })
+	end
+	for _, x in { -HALF + 1, HALF - 1 } do -- front pillars
+		Build.part(model, { Size = V(2, h + 4, 2), CFrame = at(x, (h + 4) / 2, HALF - 1), Color = C.Cream })
+	end
+	Build.part(model, { Size = V(HALF * 2, 3, 1.5), CFrame = at(0, h + 2.5, HALF - 1), Color = C.Cream }) -- front beam
+	for _, z in { -20, 0, 20 } do -- beams; the fans hang from the middle one
+		Build.part(model, { Size = V(HALF * 2 - 2, 0.8, 0.8), CFrame = at(0, h + 1.6, z), Color = C.DarkWood, Material = Enum.Material.Wood, CanCollide = false })
+	end
+end
+
+-- Three ceiling fans. The blades are tagged so each player's screen spins them.
+function builders.fans(model, at)
+	for _, x in { -16, 0, 16 } do
+		Build.part(model, { Size = V(0.3, 1.6, 0.3), CFrame = at(x, 0, 0), Color = C.Dark, CanCollide = false })
+		local blades = Instance.new("Model")
+		blades.Name = "FanBlades"
+		local hub = Build.cylinder(blades, at(x, -0.9, 0), 0.5, 1.4, C.Dark)
+		hub.CanCollide = false
+		for i = 0, 2 do
+			Build.part(blades, {
+				Size = V(5, 0.12, 1.1),
+				CFrame = at(x, -0.9, 0) * CFrame.Angles(0, math.rad(i * 120), 0) * CFrame.new(3, 0, 0),
+				Color = C.DarkWood,
+				CanCollide = false,
+			})
+		end
+		blades.PrimaryPart = hub
+		blades:AddTag("Spin")
+		blades.Parent = model
+	end
+end
+
+function builders.wok(model, at, item)
+	counter(model, at, 8, C.Steel)
+	Build.part(model, { Size = V(3, 0.6, 2.6), CFrame = at(-1.5, 4, 0), Color = C.Dark, Material = Enum.Material.Metal }) -- stove
+	Build.cylinder(model, at(-1.5, 4.6, 0), 0.6, 3, C.Dark, Enum.Material.Metal) -- wok
+	Build.cylinder(model, at(-1.5, 4.95, 0), 0.15, 2.4, C.Orange, Enum.Material.Neon) -- hot food
+	Build.part(model, { Size = V(2.4, 0.2, 1.6), CFrame = at(2.2, 3.8, 0), Color = C.White })
+	local board = Build.part(model, { Size = V(7, 1.3, 0.3), CFrame = at(0, 7.4, -1.2), Color = C.Red })
+	Build.sign(board, item.name, FRONT, C.White)
+	for _, x in { -3.6, 3.6 } do
+		Build.part(model, { Size = V(0.3, 4, 0.3), CFrame = at(x, 5.4, -1.2), Color = C.Dark })
+	end
+end
+
+function builders.shelf(model, at)
+	Build.part(model, { Size = V(8, 8, 0.4), CFrame = at(0, 4, -1), Color = C.DarkWood, Material = Enum.Material.Wood })
+	for i = 0, 2 do
+		local y = 1.6 + i * 2.6
+		Build.part(model, { Size = V(8, 0.3, 2), CFrame = at(0, y, 0), Color = C.Wood, Material = Enum.Material.Wood })
+		for j = 0, 4 do
+			Build.cylinder(model, at(-3 + j * 1.5, y + 0.75, 0), 1.2, 0.9, C.Pandan, Enum.Material.Glass)
+			Build.cylinder(model, at(-3 + j * 1.5, y + 1.42, 0), 0.15, 0.95, C.Gold)
+		end
+	end
+end
+
+-- Ah Boy, who empties the till for you.
+function builders.helper(model, at)
+	local _, torso = Build.person(model, at(0, 0, 0), { name = "Ah Boy", shirt = C.White, pants = C.Dark, hair = C.Dark })
+	Build.part(model, { Size = V(2.1, 1.6, 0.2), CFrame = at(0, 2.6, 0.6), Color = C.Green }) -- apron
+	Build.floatingText(torso, "Ah Boy", { lift = 3.4, width = 5, height = 1.2 })
+end
+
+function builders.grill(model, at)
+	for _, x in { -3, 3 } do
+		Build.part(model, { Size = V(0.4, 3, 0.4), CFrame = at(x, 1.5, 0), Color = C.Dark })
+	end
+	Build.part(model, { Size = V(8, 0.9, 2), CFrame = at(0, 3.3, 0), Color = C.Dark, Material = Enum.Material.Metal })
+	Build.part(model, { Size = V(7.4, 0.2, 1.4), CFrame = at(0, 3.8, 0), Color = C.Orange, Material = Enum.Material.Neon }) -- charcoal
+	for i = 0, 7 do
+		Build.part(model, { Size = V(0.15, 0.15, 2.8), CFrame = at(-3.2 + i * 0.9, 4, 0), Color = C.Wood })
+		Build.part(model, { Size = V(0.4, 0.35, 1.3), CFrame = at(-3.2 + i * 0.9, 4.05, -0.4), Color = Color3.fromRGB(150, 85, 45) })
+	end
+end
+
+function builders.cart(model, at, item)
+	Build.part(model, { Size = V(6, 3, 3), CFrame = at(0, 2.7, 0), Color = C.Pandan })
+	for _, x in { -2, 2 } do
+		Build.part(model, { Shape = Enum.PartType.Cylinder, Size = V(0.5, 2.4, 2.4), CFrame = at(x, 1.2, 1.7) * CFrame.Angles(0, math.rad(90), 0), Color = C.Dark })
+	end
+	for _, x in { -2.7, 2.7 } do
+		Build.part(model, { Size = V(0.3, 4.4, 0.3), CFrame = at(x, 6.4, -1), Color = C.Dark })
+	end
+	Build.part(model, { Size = V(7, 0.4, 4), CFrame = at(0, 8.8, 0), Color = C.White })
+	Build.part(model, { Size = V(7, 0.4, 1.3), CFrame = at(0, 8.8, 1.35), Color = C.Red })
+	Build.cylinder(model, at(1.5, 4.6, 0), 0.8, 1.6, C.White) -- bowl
+	Build.cylinder(model, at(1.5, 5.05, 0), 0.2, 1.3, C.Pandan)
+	Build.part(model, { Size = V(2, 1.6, 2), CFrame = at(-1.5, 5, 0), Color = C.White, Material = Enum.Material.Ice, Transparency = 0.2 }) -- ice block
+	local board = Build.part(model, { Size = V(5.6, 1.2, 0.2), CFrame = at(0, 3, 1.6), Color = C.White })
+	Build.sign(board, item.name, FRONT, C.DarkGreen)
+end
+
+function builders.griddle(model, at, item)
+	counter(model, at, 8, C.Steel)
+	Build.part(model, { Size = V(5, 0.4, 2.6), CFrame = at(-1, 3.9, 0), Color = C.Dark, Material = Enum.Material.Metal })
+	for i = 0, 2 do
+		Build.cylinder(model, at(-2.4 + i * 1.5, 4.2, 0), 0.15, 1.3, Color3.fromRGB(230, 200, 140))
+	end
+	Build.cylinder(model, at(2.8, 4.3, 0), 1.2, 1, C.Steel, Enum.Material.Metal) -- curry pot
+	local board = Build.part(model, { Size = V(7, 1.3, 0.3), CFrame = at(0, 7.4, -1.2), Color = C.Orange })
+	Build.sign(board, item.name, FRONT, C.White)
+	for _, x in { -3.6, 3.6 } do
+		Build.part(model, { Size = V(0.3, 4, 0.3), CFrame = at(x, 5.4, -1.2), Color = C.Dark })
+	end
+end
+
+-- A television on the back wall.
+function builders.tv(model, at)
+	Build.part(model, { Size = V(1, 1, 0.8), CFrame = at(0, 0, 0.1), Color = C.Dark })
+	local screen = Build.part(model, { Size = V(11, 6, 0.4), CFrame = at(0, 0, 0.7), Color = Color3.fromRGB(30, 110, 60), Material = Enum.Material.Neon })
+	Build.part(model, { Size = V(11.6, 6.6, 0.3), CFrame = at(0, 0, 0.45), Color = C.Dark })
+	Build.sign(screen, "LIVE   2 - 1", FRONT, C.White)
+end
+
+-- The big sign over the entrance, with the owner's name.
+function builders.neon(model, at, _item, ownerName)
+	local board = Build.part(model, { Size = V(34, 4.5, 0.6), CFrame = at(0, 0, 0.3), Color = C.Red, Material = Enum.Material.Neon })
+	Build.part(model, { Size = V(35, 5.5, 0.4), CFrame = at(0, 0, 0), Color = C.Dark })
+	Build.sign(board, ownerName .. "'s Kopitiam", FRONT, C.White)
+end
+
+function builders.durian(model, at, item)
+	Build.part(model, { Size = V(8, 2.6, 4), CFrame = at(0, 1.3, 0), Color = C.Wood, Material = Enum.Material.WoodPlanks })
+	local spots = { { -2.6, 0 }, { -0.9, 0.5 }, { 0.9, -0.4 }, { 2.6, 0.3 }, { -1.7, -1 }, { 1.8, -1.1 } }
+	for i, p in spots do
+		Build.ball(model, at(p[1], 3.5, p[2]), 1.7, Color3.fromRGB(150, 160, 60), Enum.Material.Pebble)
+		if i <= 2 then
+			Build.ball(model, at(p[1] * 0.6, 4.8, p[2]), 1.5, Color3.fromRGB(150, 160, 60), Enum.Material.Pebble)
+		end
+	end
+	local board = Build.part(model, { Size = V(7, 1.3, 0.2), CFrame = at(0, 1.4, 2.1), Color = Color3.fromRGB(245, 215, 90) })
+	Build.sign(board, item.name, FRONT, C.DarkGreen)
+end
+
+-- Two wall units, one on each side wall.
+function builders.aircon(model, at)
+	for _, side in { -1, 1 } do
+		local x = side * (HALF - 1.9)
+		Build.part(model, { Size = V(1.8, 2.2, 7), CFrame = at(x, 0, 0), Color = C.White })
+		Build.part(model, { Size = V(0.2, 0.3, 6), CFrame = at(x - side * 0.95, -0.8, 0), Color = Color3.fromRGB(120, 200, 255), Material = Enum.Material.Neon })
+	end
+end
+
+-- A pasar malam tent with goods and a string of lights.
+function builders.tent(model, at, item)
+	for _, p in { { -4, -3 }, { 4, -3 }, { -4, 3 }, { 4, 3 } } do
+		Build.part(model, { Size = V(0.3, 8, 0.3), CFrame = at(p[1], 4, p[2]), Color = C.Steel, Material = Enum.Material.Metal })
+	end
+	Build.part(model, { Size = V(9.4, 0.4, 7.4), CFrame = at(0, 8.2, 0), Color = C.Red })
+	Build.part(model, { Size = V(6, 1.2, 4.6), CFrame = at(0, 9, 0), Color = C.White })
+	Build.part(model, { Size = V(7, 2.6, 3), CFrame = at(0, 1.3, 0), Color = C.Wood, Material = Enum.Material.WoodPlanks })
+	local goods = { C.Orange, C.Pandan, C.Gold, C.Red, C.White }
+	for i, color in goods do
+		Build.part(model, { Size = V(1, 0.9, 1.6), CFrame = at(-3.6 + i * 1.2, 3.05, 0), Color = color })
+	end
+	for i = 0, 6 do
+		Build.ball(model, at(-4 + i * 1.33, 7.6, 3.1), 0.5, C.Gold, Enum.Material.Neon)
+	end
+	local board = Build.part(model, { Size = V(6.4, 1.2, 0.2), CFrame = at(0, 1.4, 1.6), Color = C.Dark })
+	Build.sign(board, item.name, FRONT, C.Gold)
+end
+
+-- Two delivery scooters parked out front.
+function builders.riders(model, at)
+	for n, x in { -3.5, 3.5 } do
+		Build.part(model, { Size = V(1.2, 1.4, 4.4), CFrame = at(x, 1.7, 0), Color = n == 1 and C.Red or C.Green })
+		Build.part(model, { Size = V(1.1, 0.4, 2), CFrame = at(x, 2.6, 0.3), Color = C.Dark }) -- seat
+		Build.part(model, { Size = V(0.3, 2, 0.3), CFrame = at(x, 3, -1.7), Color = C.Dark }) -- handlebar post
+		Build.part(model, { Size = V(2.2, 0.3, 0.3), CFrame = at(x, 4, -1.7), Color = C.Dark })
+		for _, z in { -1.9, 1.9 } do
+			Build.part(model, { Shape = Enum.PartType.Cylinder, Size = V(0.6, 1.9, 1.9), CFrame = at(x, 0.95, z), Color = C.Dark })
+		end
+		Build.part(model, { Size = V(1.8, 1.8, 1.8), CFrame = at(x, 3.7, 1.6), Color = C.Pandan }) -- delivery box
+	end
+end
+
+function builders.plaque(model, at)
+	Build.part(model, { Size = V(3, 3, 3), CFrame = at(0, 1.5, 0), Color = C.Marble, Material = Enum.Material.Marble })
+	local plate = Build.part(model, { Size = V(5, 3.4, 0.4), CFrame = at(0, 4.9, 0), Color = C.Gold, Material = Enum.Material.Metal })
+	Build.sign(plate, "FRANCHISE LICENCE", FRONT, C.Dark)
+end
+
+local Models = {}
+
+-- Builds one item on a plot and returns its Model. `floor` is the plot's CFrame at floor height.
+function Models.build(item, parent, floor, ownerName)
+	local model = Instance.new("Model")
+	model.Name = item.id
+	local base = floor * CFrame.new(item.x, item.y or 0, item.z)
+	local function at(x, y, z)
+		return base * CFrame.new(x, y, z)
+	end
+	local builder = builders[item.kind]
+	if builder then
+		builder(model, at, item, ownerName)
+	else
+		warn("No model for kind " .. tostring(item.kind))
+	end
+	model.Parent = parent
+	return model
+end
+
+Models.kinds = builders
+
+return Models
+]]></string>
+        </Properties>
+      </Item>
+      <Item class="ModuleScript" referent="14">
+        <Properties>
+          <string name="Name">Remotes</string>
+          <string name="Source"><![CDATA[-- The messages that travel between the server and each player's screen.
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local NAMES = {
+	"State", -- server -> player: cash, income, till and branch numbers for the screen
+	"Notify", -- server -> player: a short message that pops up
+	"AhMa", -- server -> player: something Ah Ma says
+	"OpenBranch", -- player -> server: "open a new branch" was pressed
+	"Effect", -- server -> player: play a sound (Buy, Collect, Angpow, Branch)
+}
+
+local Remotes = {}
+
+function Remotes.create()
+	local folder = Instance.new("Folder")
+	folder.Name = "Remotes"
+	local map = {}
+	for _, name in NAMES do
+		local remote = Instance.new("RemoteEvent")
+		remote.Name = name
+		remote.Parent = folder
+		map[name] = remote
+	end
+	folder.Parent = ReplicatedStorage
+	return map
+end
+
+return Remotes
+]]></string>
+        </Properties>
+      </Item>
+      <Item class="ModuleScript" referent="15">
+        <Properties>
+          <string name="Name">Shop</string>
+          <string name="Source"><![CDATA[-- The Robux shop: game passes (bought once) and cash packs (bought again and again).
+-- IDs live in Config. Anything at 0 is switched off, so nothing here runs until Joey makes them in the Creator Hub.
+local MarketplaceService = game:GetService("MarketplaceService")
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+local Config = require(Shared:WaitForChild("Config"))
+
+local Shop = {}
+
+-- Game pass ID -> its name in Config.GamePasses
+local function passNames()
+	local byId = {}
+	for name, id in Config.GamePasses do
+		if id ~= 0 then
+			byId[id] = name
+		end
+	end
+	return byId
+end
+
+-- Product ID -> its pack in Config.Products
+local function packs()
+	local byId = {}
+	for _, pack in Config.Products do
+		if pack.id ~= 0 then
+			byId[pack.id] = pack
+		end
+	end
+	return byId
+end
+
+-- `tycoonOf(player)` returns that player's Tycoon or nil. `save(player)` saves and returns true when it worked.
+function Shop.start(tycoonOf, save)
+	local passes = passNames()
+	local products = packs()
+
+	-- Check which passes a player already owns, once their kopitiam is ready.
+	function Shop.checkPasses(player)
+		for id, name in passes do
+			task.spawn(function()
+				local ok, owns = pcall(function()
+					return MarketplaceService:UserOwnsGamePassAsync(player.UserId, id)
+				end)
+				local tycoon = tycoonOf(player)
+				if ok and owns and tycoon then
+					tycoon:grantPass(name)
+				end
+			end)
+		end
+	end
+
+	-- A pass bought during play works straight away.
+	MarketplaceService.PromptGamePassPurchaseFinished:Connect(function(player, id, bought)
+		local name = passes[id]
+		local tycoon = tycoonOf(player)
+		if bought and name and tycoon then
+			tycoon:grantPass(name)
+		end
+	end)
+
+	-- Roblox calls this for every cash pack, and again later if we do not say it was granted.
+	MarketplaceService.ProcessReceipt = function(receipt)
+		local pack = products[receipt.ProductId]
+		local player = Players:GetPlayerByUserId(receipt.PlayerId)
+		local tycoon = player and tycoonOf(player)
+		if not pack or not tycoon or not tycoon.canSave then
+			return Enum.ProductPurchaseDecision.NotProcessedYet
+		end
+		local receiptId = tostring(receipt.PurchaseId)
+		if tycoon:hasReceipt(receiptId) then
+			return Enum.ProductPurchaseDecision.PurchaseGranted
+		end
+		local amount = tycoon:grantCashPack(receiptId, pack)
+		if save(player) then
+			return Enum.ProductPurchaseDecision.PurchaseGranted
+		end
+		tycoon:undoCashPack(receiptId, amount)
+		return Enum.ProductPurchaseDecision.NotProcessedYet
+	end
+end
+
+return Shop
+]]></string>
+        </Properties>
+      </Item>
+      <Item class="ModuleScript" referent="16">
+        <Properties>
+          <string name="Name">Store</string>
+          <string name="Source"><![CDATA[-- Loading and saving each player's kopitiam.
+local DataStoreService = game:GetService("DataStoreService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+local Config = require(Shared:WaitForChild("Config"))
+local SaveData = require(Shared:WaitForChild("SaveData"))
+
+local Store = {}
+
+local store = nil
+do
+	-- In Studio this fails until "Enable Studio Access to API Services" is switched on. The game still runs.
+	local ok, result = pcall(function()
+		return DataStoreService:GetDataStore(Config.DataStoreName)
+	end)
+	if ok then
+		store = result
+	else
+		warn("Saving is off: " .. tostring(result))
+	end
+end
+
+local function key(userId)
+	return "player_" .. tostring(userId)
+end
+
+-- Returns the player's data and whether storage answered. If it did not answer, the caller must not save
+-- later, or a new empty kopitiam would overwrite the real one.
+function Store.load(userId)
+	if not store then
+		return SaveData.default(), false
+	end
+	for attempt = 1, 3 do
+		local ok, result = pcall(function()
+			return store:GetAsync(key(userId))
+		end)
+		if ok then
+			return SaveData.clean(result), true
+		end
+		warn("Load failed for " .. tostring(userId) .. " (try " .. attempt .. "): " .. tostring(result))
+		task.wait(attempt)
+	end
+	return SaveData.default(), false
+end
+
+function Store.save(userId, data)
+	if not store then
+		return false
+	end
+	for attempt = 1, 3 do
+		local ok, result = pcall(function()
+			store:SetAsync(key(userId), data)
+		end)
+		if ok then
+			return true
+		end
+		warn("Save failed for " .. tostring(userId) .. " (try " .. attempt .. "): " .. tostring(result))
+		task.wait(attempt)
+	end
+	return false
+end
+
+return Store
+]]></string>
+        </Properties>
+      </Item>
+      <Item class="ModuleScript" referent="17">
+        <Properties>
+          <string name="Name">Tycoon</string>
+          <string name="Source"><![CDATA[-- One player's kopitiam: what they own, their cash, the till, the buy pads and the models on their plot.
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+local Catalog = require(Shared:WaitForChild("Catalog"))
+local Config = require(Shared:WaitForChild("Config"))
+local Economy = require(Shared:WaitForChild("Economy"))
+local Format = require(Shared:WaitForChild("Format"))
+local SaveData = require(Shared:WaitForChild("SaveData"))
+
+local Build = require(script.Parent.Build)
+local Customers = require(script.Parent.Customers)
+local Models = require(script.Parent.Models)
+local World = require(script.Parent.World)
+
+local C = Build.Colors
+local V = Vector3.new
+local PAD_CAN_BUY = Color3.fromRGB(80, 200, 110)
+local PAD_TOO_DEAR = Color3.fromRGB(200, 80, 70)
+
+local Tycoon = {}
+Tycoon.__index = Tycoon
+
+function Tycoon.new(player, plot, data, remotes)
+	local self = setmetatable({}, Tycoon)
+	self.player = player
+	self.plot = plot
+	self.remotes = remotes
+	self.floor = plot.cframe * CFrame.new(0, World.FLOOR, 0)
+	self.cash = data.cash
+	self.branches = data.branches
+	self.lastAngpow = data.lastAngpow
+	self.lastSeen = data.lastSeen
+	self.receipts = table.clone(data.receipts)
+	self.passes = {} -- game pass name -> true, filled in by the Shop once Roblox answers
+	self.till = 0
+	self.owned = {}
+	for _, id in data.owned do
+		self.owned[id] = true
+	end
+	self.canSave = true
+	self.pads = {} -- item id -> the pad part
+	self.models = {} -- item id -> the built model
+	self.connections = {}
+	self.lastTouch = {} -- item id -> when its pad was last stepped on
+	self.lastComplaint = 0
+	self.sinceState = 0
+	self.alive = true
+	return self
+end
+
+function Tycoon:notify(text)
+	self.remotes.Notify:FireClient(self.player, text)
+end
+
+function Tycoon:effect(name)
+	self.remotes.Effect:FireClient(self.player, name)
+end
+
+function Tycoon:boost()
+	return self.passes.DoubleCash and 2 or 1
+end
+
+function Tycoon:income()
+	return Economy.incomePerSecond(self.owned, self.branches, self:boost())
+end
+
+function Tycoon:autoCollects()
+	return self.passes.AutoCollect == true or Economy.autoCollects(self.owned)
+end
+
+-- True when `hit` is part of this kopitiam owner's own character.
+function Tycoon:isOwner(hit)
+	local character = self.player.Character
+	return character ~= nil and hit:IsDescendantOf(character)
+end
+
+function Tycoon:start()
+	local folder = Instance.new("Folder")
+	folder.Name = "Tycoon_" .. self.player.Name
+	self.folder = folder
+
+	-- The owner's name on a signpost beside the entrance, clear of the path.
+	local front = Config.PlotSize / 2 + 2
+	for _, x in { -25, -13 } do
+		Build.part(folder, { Size = V(0.6, 5, 0.6), CFrame = self.floor * CFrame.new(x, 2.5, front), Color = C.DarkWood, Material = Enum.Material.Wood })
+	end
+	local nameBoard = Build.part(folder, { Name = "NameBoard", Size = V(14, 3, 0.5), CFrame = self.floor * CFrame.new(-19, 6, front), Color = C.DarkGreen })
+	Build.sign(nameBoard, self.player.DisplayName .. "'s Kopitiam", Enum.NormalId.Back, C.Gold)
+
+	-- The till: a counter with a cash register, and a glowing pad in front that collects the money.
+	local tillSpot = self.floor * CFrame.new(0, 0, 22)
+	Build.part(folder, { Size = V(6, 3.4, 3), CFrame = tillSpot * CFrame.new(0, 1.7, 0), Color = C.Wood, Material = Enum.Material.Wood })
+	local register = Build.part(folder, { Name = "Register", Size = V(2.4, 1.6, 2), CFrame = tillSpot * CFrame.new(0, 4.2, 0), Color = C.Dark })
+	self.tillLabel = Build.floatingText(register, "Till: RM 0", { lift = 2.6, width = 10, height = 2, color = C.Gold, distance = 120 })
+	local collect = Build.part(folder, { Name = "CollectPad", Size = V(7, 0.3, 4), CFrame = tillSpot * CFrame.new(0, 0.15, 4.5), Color = C.Volt, Material = Enum.Material.Neon })
+	Build.floatingText(collect, "COLLECT", { lift = 1.6, width = 6, height = 1.2, color = C.White })
+	table.insert(self.connections, collect.Touched:Connect(function(hit)
+		if self:isOwner(hit) then
+			self:collect(false)
+		end
+	end))
+
+	local items = Instance.new("Folder")
+	items.Name = "Items"
+	items.Parent = folder
+	self.itemsFolder = items
+	local pads = Instance.new("Folder")
+	pads.Name = "Pads"
+	pads.Parent = folder
+	self.padsFolder = pads
+
+	for id in self.owned do
+		self:buildItem(id)
+	end
+	self:refreshPads()
+
+	local stats = Instance.new("Folder")
+	stats.Name = "leaderstats"
+	local ringgit = Instance.new("IntValue")
+	ringgit.Name = "Ringgit"
+	ringgit.Parent = stats
+	local branches = Instance.new("IntValue")
+	branches.Name = "Branches"
+	branches.Parent = stats
+	stats.Parent = self.player
+	self.stats = { ringgit = ringgit, branches = branches }
+
+	self.customers = Customers.new(folder, self.floor, function()
+		return self.owned
+	end, Random.new())
+
+	folder.Parent = self.plot.folder
+	self:pushState()
+end
+
+-- Pays what the kopitiam earned while its owner was away. Only for a save that loaded. Returns the amount.
+function Tycoon:welcomeBack(now)
+	if self.lastSeen <= 0 then
+		return 0
+	end
+	local amount = Economy.offlineEarnings(self:income(), now - self.lastSeen)
+	if amount > 0 then
+		self.cash += amount
+		self:paintPads()
+		self:pushState()
+		self:effect("Collect")
+	end
+	return amount
+end
+
+-- Moves the customers. Called every server frame, so they walk smoothly.
+function Tycoon:stepCustomers(dt)
+	if self.customers then
+		self.customers:step(dt)
+	end
+end
+
+function Tycoon:buildItem(id)
+	local item = Catalog.byId[id]
+	if item and not self.models[id] then
+		self.models[id] = Models.build(item, self.itemsFolder, self.floor, self.player.DisplayName)
+	end
+end
+
+-- Shows a buy pad for everything the player can work toward next, and removes pads for things they own.
+function Tycoon:refreshPads()
+	local wanted = {}
+	for _, item in Economy.availableItems(self.owned) do
+		wanted[item.id] = item
+	end
+	for id, pad in self.pads do
+		if not wanted[id] then
+			pad:Destroy()
+			self.pads[id] = nil
+		end
+	end
+	for id, item in wanted do
+		if not self.pads[id] then
+			local x = item.padX or item.x
+			local z = item.padZ or (item.z + 7)
+			local pad = Build.part(self.padsFolder, {
+				Name = "Buy_" .. id,
+				Size = V(4.5, 0.4, 4.5),
+				CFrame = self.floor * CFrame.new(x, 0.2, z),
+				Color = PAD_TOO_DEAR,
+				Material = Enum.Material.Neon,
+			})
+			local price = item.price > 0 and Format.money(item.price) or "FREE"
+			Build.floatingText(pad, item.name .. "\n" .. price, { lift = 3, width = 11, height = 3 })
+			pad.Touched:Connect(function(hit)
+				if self.alive and self:isOwner(hit) then
+					self:onPadTouched(id)
+				end
+			end)
+			self.pads[id] = pad
+		end
+	end
+	self:paintPads()
+end
+
+function Tycoon:paintPads()
+	for id, pad in self.pads do
+		local item = Catalog.byId[id]
+		pad.Color = (item and self.cash >= item.price) and PAD_CAN_BUY or PAD_TOO_DEAR
+	end
+end
+
+function Tycoon:onPadTouched(id)
+	local now = os.clock()
+	if now - (self.lastTouch[id] or 0) < 0.4 then
+		return
+	end
+	self.lastTouch[id] = now
+	self:buy(id)
+end
+
+-- Tries to buy one item. Returns true when it was bought.
+function Tycoon:buy(id)
+	local ok, reason = Economy.canBuy(id, self.owned, self.cash)
+	if not ok then
+		local now = os.clock()
+		if reason and now - self.lastComplaint > 2 then -- do not spam while they stand on the pad
+			self.lastComplaint = now
+			local item = Catalog.byId[id]
+			if item and self.cash < item.price then
+				reason = "You need " .. Format.money(item.price - self.cash) .. " more for the " .. item.name .. "."
+			end
+			self:notify(reason)
+		end
+		return false
+	end
+	local item = Catalog.byId[id]
+	self.cash -= item.price
+	self.owned[id] = true
+	self:buildItem(id)
+	self:refreshPads()
+	self:effect("Buy")
+	if item.autoCollect then
+		self:notify("Ah Boy starts today. He empties the till for you.")
+	elseif item.unlocksBranch then
+		self:notify("Franchise Licence! You can open a new branch now.")
+	else
+		self:notify(item.name .. " bought. +" .. Format.money(item.income * Economy.multiplier(self.branches)) .. " a second.")
+	end
+	self:pushState()
+	return true
+end
+
+-- Moves the till's money into cash.
+function Tycoon:collect(quiet)
+	local amount = math.floor(self.till)
+	if amount < 1 then
+		return 0
+	end
+	self.till -= amount
+	self.cash += amount
+	if not quiet then
+		self:notify("Collected " .. Format.money(amount) .. ".")
+		self:effect("Collect")
+	end
+	self:paintPads()
+	self:pushState()
+	return amount
+end
+
+-- Called a few times a second by the server.
+function Tycoon:step(dt)
+	local income = self:income()
+	local capacity = Economy.tillCapacity(income)
+	self.till = math.min(capacity, self.till + income * dt)
+	if self:autoCollects() and self.till >= 1 then
+		local amount = math.floor(self.till)
+		self.till -= amount
+		self.cash += amount
+	end
+	self.sinceState += dt
+	if self.sinceState >= 0.5 then
+		self.sinceState = 0
+		self:paintPads()
+		self:pushState()
+	end
+end
+
+-- Franchise time: start again from one stall, with every ringgit worth more.
+function Tycoon:openBranch()
+	if not Economy.canOpenBranch(self.owned) then
+		self:notify("Buy the Franchise Licence first.")
+		return false
+	end
+	self.branches += 1
+	self.cash = 0
+	self.till = 0
+	self.owned = { [Catalog.starter] = true }
+	if self.customers then
+		self.customers:clear()
+	end
+	for id, model in self.models do
+		model:Destroy()
+		self.models[id] = nil
+	end
+	for id, pad in self.pads do
+		pad:Destroy()
+		self.pads[id] = nil
+	end
+	self:buildItem(Catalog.starter)
+	self:refreshPads()
+	self:effect("Branch")
+	self:notify("Branch " .. (self.branches + 1) .. " is open! Everything now earns x" .. string.format("%.1f", Economy.multiplier(self.branches)) .. ".")
+	self:pushState()
+	return true
+end
+
+-- Ah Ma's angpow. Returns the amount given, or nil and the seconds left to wait.
+function Tycoon:claimAngpow(now)
+	local wait = Config.AngpowHours * 3600 - (now - self.lastAngpow)
+	if wait > 0 then
+		return nil, wait
+	end
+	local amount = Economy.angpow(self:income())
+	self.lastAngpow = now
+	self.cash += amount
+	self:paintPads()
+	self:pushState()
+	self:effect("Angpow")
+	return amount, 0
+end
+
+function Tycoon:pushState()
+	local income = self:income()
+	if self.tillLabel then
+		self.tillLabel.Text = "Till: " .. Format.money(self.till)
+	end
+	if self.stats then
+		self.stats.ringgit.Value = math.floor(self.cash)
+		self.stats.branches.Value = self.branches + 1
+	end
+	self.remotes.State:FireClient(self.player, {
+		cash = math.floor(self.cash),
+		income = income,
+		till = math.floor(self.till),
+		tillMax = Economy.tillCapacity(income),
+		branches = self.branches,
+		multiplier = Economy.multiplier(self.branches),
+		canOpenBranch = Economy.canOpenBranch(self.owned),
+		autoCollect = self:autoCollects(),
+		passes = self.passes,
+	})
+end
+
+-- What gets saved. Money still in the till is kept too.
+function Tycoon:snapshot()
+	local owned = {}
+	for _, item in Catalog.items do -- catalog order, so saves are stable
+		if self.owned[item.id] then
+			table.insert(owned, item.id)
+		end
+	end
+	return {
+		version = SaveData.VERSION,
+		cash = math.floor(self.cash + self.till),
+		branches = self.branches,
+		owned = owned,
+		lastAngpow = self.lastAngpow,
+		lastSeen = os.time(),
+		receipts = self.receipts,
+	}
+end
+
+-- ── The Robux shop ──
+-- A game pass the player owns. Shown on screen and used from now on.
+function Tycoon:grantPass(name)
+	if self.passes[name] then
+		return
+	end
+	self.passes[name] = true
+	if name == "DoubleCash" then
+		self:notify("Double Cash is on: everything earns x2.")
+	elseif name == "AutoCollect" then
+		self:notify("Auto Till is on: the till empties itself.")
+	end
+	self:paintPads()
+	self:pushState()
+end
+
+function Tycoon:hasReceipt(receiptId)
+	return table.find(self.receipts, receiptId) ~= nil
+end
+
+-- A cash pack. Remembers the receipt so a retry from Roblox never pays twice. Returns the amount.
+function Tycoon:grantCashPack(receiptId, pack)
+	local amount = Economy.cashPack(self:income(), pack.seconds, pack.minimum)
+	self.cash += amount
+	table.insert(self.receipts, receiptId)
+	while #self.receipts > SaveData.MAX_RECEIPTS do
+		table.remove(self.receipts, 1)
+	end
+	self:notify("Thank you, boss! +" .. Format.money(amount) .. ".")
+	self:effect("Angpow")
+	self:paintPads()
+	self:pushState()
+	return amount
+end
+
+-- Takes a cash pack back when it could not be saved, so Roblox can try again later.
+function Tycoon:undoCashPack(receiptId, amount)
+	self.cash = math.max(0, self.cash - amount)
+	local at = table.find(self.receipts, receiptId)
+	if at then
+		table.remove(self.receipts, at)
+	end
+	self:paintPads()
+	self:pushState()
+end
+
+function Tycoon:destroy()
+	self.alive = false
+	if self.customers then
+		self.customers:destroy()
+		self.customers = nil
+	end
+	for _, connection in self.connections do
+		connection:Disconnect()
+	end
+	if self.folder then
+		self.folder:Destroy()
+	end
+end
+
+-- Where the owner stands when they arrive: just inside the entrance, facing in.
+function Tycoon:spawnCFrame()
+	return self.floor * CFrame.new(10, 4, 27)
+end
+
+return Tycoon
+]]></string>
+        </Properties>
+      </Item>
+      <Item class="ModuleScript" referent="18">
+        <Properties>
+          <string name="Name">World</string>
+          <string name="Source"><![CDATA[-- Builds the map when the server starts: the ground, the plaza in the middle and a ring of empty plots.
+local Lighting = game:GetService("Lighting")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local Build = require(script.Parent.Build)
+local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Config"))
+
+local C = Build.Colors
+local V = Vector3.new
+
+local World = {}
+
+World.FLOOR = 0.4 -- how far a plot's floor sits above the ground
+
+local function lamp(parent, position)
+	Build.part(parent, { Size = V(0.6, 12, 0.6), CFrame = CFrame.new(position + V(0, 6, 0)), Color = C.Dark, Material = Enum.Material.Metal })
+	local bulb = Build.ball(parent, CFrame.new(position + V(0, 12.6, 0)), 1.8, Color3.fromRGB(255, 236, 170), Enum.Material.Neon)
+	local light = Instance.new("PointLight")
+	light.Range = 34
+	light.Brightness = 1.2
+	light.Color = Color3.fromRGB(255, 225, 160)
+	light.Parent = bulb
+end
+
+function World.build()
+	local map = Instance.new("Folder")
+	map.Name = "Map"
+
+	Build.part(map, { Name = "Ground", Size = V(700, 4, 700), CFrame = CFrame.new(0, -2, 0), Color = C.Grass, Material = Enum.Material.Grass })
+	Build.part(map, { Name = "Plaza", Size = V(96, 0.3, 96), CFrame = CFrame.new(0, 0.15, 0), Color = C.Tile, Material = Enum.Material.Pavement })
+
+	local spawn = Instance.new("SpawnLocation")
+	spawn.Name = "PlazaSpawn"
+	spawn.Anchored = true
+	spawn.Neutral = true
+	spawn.Size = V(10, 0.6, 10)
+	spawn.CFrame = CFrame.new(0, 0.6, 26)
+	spawn.Color = C.Green
+	spawn.Material = Enum.Material.SmoothPlastic
+	spawn.TopSurface = Enum.SurfaceType.Smooth
+	spawn.Parent = map
+
+	local plots = {}
+	for i = 1, Config.PlotCount do
+		local angle = (i - 1) * (2 * math.pi / Config.PlotCount)
+		local position = V(math.sin(angle), 0, math.cos(angle)) * Config.PlotRadius
+		-- Look away from the middle, so the plot's +z (its front) faces the plaza.
+		local cframe = CFrame.lookAt(position, position * 2)
+		local folder = Instance.new("Folder")
+		folder.Name = "Plot" .. i
+
+		Build.part(folder, { Name = "Floor", Size = V(Config.PlotSize, World.FLOOR, Config.PlotSize), CFrame = cframe * CFrame.new(0, World.FLOOR / 2, 0), Color = C.Tile, Material = Enum.Material.Marble })
+		Build.part(folder, { Name = "Trim", Size = V(Config.PlotSize + 2, 0.2, Config.PlotSize + 2), CFrame = cframe * CFrame.new(0, 0.1, 0), Color = C.DarkGreen })
+		-- A path from the plot's front to the plaza.
+		local reach = Config.PlotRadius - Config.PlotSize / 2 - 48
+		Build.part(folder, { Name = "Path", Size = V(12, 0.2, reach), CFrame = cframe * CFrame.new(0, 0.1, Config.PlotSize / 2 + reach / 2), Color = C.Stone, Material = Enum.Material.Cobblestone })
+
+		folder.Parent = map
+		table.insert(plots, { index = i, cframe = cframe, folder = folder })
+
+		local between = angle + math.pi / Config.PlotCount
+		lamp(map, V(math.sin(between), 0, math.cos(between)) * 70)
+	end
+
+	map.Parent = workspace
+
+	Lighting.ClockTime = 17.2
+	Lighting.Brightness = 2
+	Lighting.Ambient = Color3.fromRGB(110, 100, 90)
+	Lighting.OutdoorAmbient = Color3.fromRGB(140, 130, 120)
+
+	return { map = map, plots = plots }
+end
+
+return World
+]]></string>
+        </Properties>
+      </Item>
+    </Item>
+  </Item>
+  <Item class="StarterPlayer" referent="19">
+    <Properties>
+      <string name="Name">StarterPlayer</string>
+    </Properties>
+    <Item class="StarterPlayerScripts" referent="20">
+      <Properties>
+        <string name="Name">StarterPlayerScripts</string>
+      </Properties>
+      <Item class="LocalScript" referent="21">
+        <Properties>
+          <string name="Name">Client</string>
+          <string name="Source"><![CDATA[-- Kopitiam Tycoon: what each player sees on screen. Cash, income, the till, pop-up messages,
+-- Ah Ma's speech, the "open a new branch" button, the Robux shop and the sounds.
+-- Built in code so it works on phones and computers.
+local CollectionService = game:GetService("CollectionService")
+local MarketplaceService = game:GetService("MarketplaceService")
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+local SoundService = game:GetService("SoundService")
+local TweenService = game:GetService("TweenService")
+
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+local Config = require(Shared:WaitForChild("Config"))
+local Format = require(Shared:WaitForChild("Format"))
+local remotes = ReplicatedStorage:WaitForChild("Remotes")
+
+local player = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
+
+local state = nil -- the latest numbers from the server
+local shownCash = 0
+
+local GOLD = Color3.fromRGB(232, 188, 70)
+local DARK = Color3.fromRGB(20, 21, 24)
+local WHITE = Color3.fromRGB(250, 250, 250)
+local GREEN = Color3.fromRGB(46, 125, 87)
+local RED = Color3.fromRGB(196, 58, 49)
+
+local function corner(parent, radius)
+	local c = Instance.new("UICorner")
+	c.CornerRadius = UDim.new(0, radius)
+	c.Parent = parent
+end
+
+local function text(parent, props)
+	local label = Instance.new(props.button and "TextButton" or "TextLabel")
+	label.BackgroundTransparency = props.background and 0 or 1
+	label.BackgroundColor3 = props.background or DARK
+	label.BorderSizePixel = 0
+	label.Font = props.font or Enum.Font.GothamBold
+	label.TextColor3 = props.color or WHITE
+	label.TextScaled = true
+	label.TextWrapped = true
+	label.Text = props.text or ""
+	label.Size = props.size
+	label.Position = props.position or UDim2.new()
+	label.AnchorPoint = props.anchor or Vector2.zero
+	if props.maxText then
+		local limit = Instance.new("UITextSizeConstraint")
+		limit.MaxTextSize = props.maxText
+		limit.Parent = label
+	end
+	label.Parent = parent
+	return label
+end
+
+local gui = Instance.new("ScreenGui")
+gui.Name = "KopitiamHud"
+gui.ResetOnSpawn = false
+gui.IgnoreGuiInset = false
+gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+
+-- Cash panel, top middle.
+local panel = Instance.new("Frame")
+panel.AnchorPoint = Vector2.new(0.5, 0)
+panel.Position = UDim2.new(0.5, 0, 0, 8)
+panel.Size = UDim2.new(0.6, 0, 0.14, 0)
+panel.BackgroundColor3 = DARK
+panel.BackgroundTransparency = 0.25
+panel.BorderSizePixel = 0
+local panelLimit = Instance.new("UISizeConstraint")
+panelLimit.MaxSize = Vector2.new(380, 96)
+panelLimit.MinSize = Vector2.new(200, 64)
+panelLimit.Parent = panel
+corner(panel, 16)
+panel.Parent = gui
+
+local cashLabel = text(panel, { text = "RM 0", color = GOLD, size = UDim2.new(1, -20, 0.5, 0), position = UDim2.new(0, 10, 0.04, 0), maxText = 40 })
+local incomeLabel = text(panel, { text = "+RM 0 a second", size = UDim2.new(1, -20, 0.22, 0), position = UDim2.new(0, 10, 0.52, 0), font = Enum.Font.GothamMedium, maxText = 18 })
+local tillLabel = text(panel, { text = "Till: RM 0", size = UDim2.new(1, -20, 0.2, 0), position = UDim2.new(0, 10, 0.76, 0), font = Enum.Font.Gotham, maxText = 16 })
+
+-- Pop-up message, lower middle.
+local toast = text(gui, {
+	background = DARK, size = UDim2.new(0.8, 0, 0.08, 0), position = UDim2.new(0.5, 0, 0.74, 0), anchor = Vector2.new(0.5, 0.5), maxText = 22,
+	font = Enum.Font.GothamMedium,
+})
+toast.Visible = false
+corner(toast, 14)
+local toastLimit = Instance.new("UISizeConstraint")
+toastLimit.MaxSize = Vector2.new(560, 64)
+toastLimit.Parent = toast
+local toastPad = Instance.new("UIPadding")
+toastPad.PaddingLeft = UDim.new(0, 14)
+toastPad.PaddingRight = UDim.new(0, 14)
+toastPad.Parent = toast
+
+-- Ah Ma's speech, above the pop-up.
+local speech = text(gui, {
+	background = Color3.fromRGB(250, 244, 230), color = DARK, size = UDim2.new(0.86, 0, 0.12, 0), position = UDim2.new(0.5, 0, 0.58, 0),
+	anchor = Vector2.new(0.5, 0.5), maxText = 22, font = Enum.Font.GothamMedium,
+})
+speech.Visible = false
+corner(speech, 16)
+local speechLimit = Instance.new("UISizeConstraint")
+speechLimit.MaxSize = Vector2.new(620, 96)
+speechLimit.Parent = speech
+local speechPad = Instance.new("UIPadding")
+speechPad.PaddingLeft = UDim.new(0, 16)
+speechPad.PaddingRight = UDim.new(0, 16)
+speechPad.PaddingTop = UDim.new(0, 8)
+speechPad.PaddingBottom = UDim.new(0, 8)
+speechPad.Parent = speech
+
+-- "Open a new branch" button, right side, with a confirm box.
+local branchButton = text(gui, {
+	button = true, background = GOLD, color = DARK, text = "Open a new branch", size = UDim2.new(0.34, 0, 0.08, 0),
+	position = UDim2.new(1, -12, 0.5, 0), anchor = Vector2.new(1, 0.5), maxText = 20,
+})
+branchButton.Visible = false
+branchButton.AutoButtonColor = true
+corner(branchButton, 14)
+local branchLimit = Instance.new("UISizeConstraint")
+branchLimit.MaxSize = Vector2.new(230, 60)
+branchLimit.MinSize = Vector2.new(140, 48)
+branchLimit.Parent = branchButton
+
+local confirm = Instance.new("Frame")
+confirm.AnchorPoint = Vector2.new(0.5, 0.5)
+confirm.Position = UDim2.new(0.5, 0, 0.45, 0)
+confirm.Size = UDim2.new(0.86, 0, 0.36, 0)
+confirm.BackgroundColor3 = DARK
+confirm.BorderSizePixel = 0
+confirm.Visible = false
+corner(confirm, 18)
+local confirmLimit = Instance.new("UISizeConstraint")
+confirmLimit.MaxSize = Vector2.new(440, 250)
+confirmLimit.Parent = confirm
+confirm.Parent = gui
+local confirmText = text(confirm, { size = UDim2.new(1, -32, 0.56, 0), position = UDim2.new(0, 16, 0.06, 0), font = Enum.Font.GothamMedium, maxText = 22 })
+local yes = text(confirm, { button = true, background = GREEN, text = "Open it", size = UDim2.new(0.44, 0, 0.24, 0), position = UDim2.new(0.04, 0, 0.7, 0), maxText = 22 })
+local no = text(confirm, { button = true, background = RED, text = "Not yet", size = UDim2.new(0.44, 0, 0.24, 0), position = UDim2.new(0.52, 0, 0.7, 0), maxText = 22 })
+corner(yes, 12)
+corner(no, 12)
+
+-- The Robux shop: a button on the left, and a panel with what is for sale. Only things with an ID show.
+local shopItems = {}
+for _, entry in {
+	{ pass = "DoubleCash", title = "Double Cash", line = "Everything earns x2, forever." },
+	{ pass = "AutoCollect", title = "Auto Till", line = "The till empties itself. No more walking to collect." },
+	{ product = "CashSmall", title = "Bag of Ringgit", line = "15 minutes of your income, right now." },
+	{ product = "CashBig", title = "Tauke's Vault", line = "2 hours of your income, right now." },
+} do
+	local id = entry.pass and Config.GamePasses[entry.pass] or Config.Products[entry.product].id
+	if id ~= 0 then
+		entry.id = id
+		table.insert(shopItems, entry)
+	end
+end
+
+local shopButton = text(gui, {
+	button = true, background = GREEN, text = "Shop", size = UDim2.new(0.2, 0, 0.07, 0),
+	position = UDim2.new(0, 12, 0.5, 0), anchor = Vector2.new(0, 0.5), maxText = 20,
+})
+shopButton.Visible = #shopItems > 0
+corner(shopButton, 14)
+local shopButtonLimit = Instance.new("UISizeConstraint")
+shopButtonLimit.MaxSize = Vector2.new(130, 56)
+shopButtonLimit.MinSize = Vector2.new(84, 48)
+shopButtonLimit.Parent = shopButton
+
+local shop = Instance.new("Frame")
+shop.Name = "Shop"
+shop.AnchorPoint = Vector2.new(0.5, 0.5)
+shop.Position = UDim2.new(0.5, 0, 0.5, 0)
+shop.Size = UDim2.new(0.9, 0, 0.72, 0)
+shop.BackgroundColor3 = DARK
+shop.BorderSizePixel = 0
+shop.Visible = false
+corner(shop, 18)
+local shopLimit = Instance.new("UISizeConstraint")
+shopLimit.MaxSize = Vector2.new(460, 420)
+shopLimit.Parent = shop
+shop.Parent = gui
+text(shop, { text = "Kopitiam Shop", color = GOLD, size = UDim2.new(1, -90, 0.12, 0), position = UDim2.new(0, 16, 0.03, 0), maxText = 26 })
+local closeShop = text(shop, { button = true, background = RED, text = "X", size = UDim2.new(0, 48, 0, 48), position = UDim2.new(1, -12, 0, 12), anchor = Vector2.new(1, 0), maxText = 22 })
+corner(closeShop, 12)
+local shopRows = {} -- pass name -> its buy button, to show "Owned"
+local rowHeight = 0.8 / math.max(#shopItems, 1)
+for i, entry in shopItems do
+	local row = Instance.new("Frame")
+	row.BackgroundTransparency = 1
+	row.Size = UDim2.new(1, -32, rowHeight, -8)
+	row.Position = UDim2.new(0, 16, 0.17 + (i - 1) * rowHeight, 0)
+	row.Parent = shop
+	text(row, { text = entry.title, color = WHITE, size = UDim2.new(0.66, 0, 0.45, 0), position = UDim2.new(0, 0, 0.05, 0), maxText = 20 })
+	text(row, { text = entry.line, font = Enum.Font.Gotham, size = UDim2.new(0.66, 0, 0.4, 0), position = UDim2.new(0, 0, 0.52, 0), maxText = 15 })
+	local buy = text(row, { button = true, background = GOLD, color = DARK, text = "Buy", size = UDim2.new(0.3, 0, 0.8, 0), position = UDim2.new(1, 0, 0.5, 0), anchor = Vector2.new(1, 0.5), maxText = 20 })
+	corner(buy, 12)
+	buy.Activated:Connect(function()
+		if entry.pass then
+			if not (state and state.passes and state.passes[entry.pass]) then
+				MarketplaceService:PromptGamePassPurchase(player, entry.id)
+			end
+		else
+			MarketplaceService:PromptProductPurchase(player, entry.id)
+		end
+	end)
+	if entry.pass then
+		shopRows[entry.pass] = buy
+	end
+end
+shopButton.Activated:Connect(function()
+	shop.Visible = not shop.Visible
+end)
+closeShop.Activated:Connect(function()
+	shop.Visible = false
+end)
+
+gui.Parent = playerGui
+
+-- Sounds: one Sound for each name in Config.Sounds that has an ID.
+local sounds = {}
+for name, id in Config.Sounds do
+	if id ~= "" then
+		local sound = Instance.new("Sound")
+		sound.Name = name
+		sound.SoundId = id
+		sound.Volume = name == "Music" and 0.25 or 0.6
+		sound.Looped = name == "Music"
+		sound.Parent = SoundService
+		sounds[name] = sound
+	end
+end
+if sounds.Music then
+	sounds.Music:Play()
+end
+
+-- Show a frame for a few seconds, then hide it. A newer message replaces an older one.
+local showCount = {}
+local function show(label, message, seconds)
+	showCount[label] = (showCount[label] or 0) + 1
+	local mine = showCount[label]
+	label.Text = message
+	label.Visible = true
+	task.delay(seconds, function()
+		if showCount[label] == mine then
+			label.Visible = false
+		end
+	end)
+end
+
+
+remotes:WaitForChild("State").OnClientEvent:Connect(function(newState)
+	state = newState
+	incomeLabel.Text = "+" .. Format.money(newState.income) .. " a second"
+	if newState.autoCollect then
+		tillLabel.Text = "Ah Boy is collecting the till"
+	elseif newState.till >= newState.tillMax then
+		tillLabel.Text = "Till is FULL: " .. Format.money(newState.till) .. ". Go collect!"
+	else
+		tillLabel.Text = "Till: " .. Format.money(newState.till) .. " of " .. Format.money(newState.tillMax)
+	end
+	tillLabel.TextColor3 = (not newState.autoCollect and newState.till >= newState.tillMax) and GOLD or WHITE
+	branchButton.Visible = newState.canOpenBranch and not confirm.Visible
+	for name, button in shopRows do
+		local owned = newState.passes and newState.passes[name]
+		button.Text = owned and "Owned" or "Buy"
+		button.BackgroundColor3 = owned and GREEN or GOLD
+		button.TextColor3 = owned and WHITE or DARK
+	end
+end)
+
+remotes:WaitForChild("Effect").OnClientEvent:Connect(function(name)
+	local sound = sounds[name]
+	if sound then
+		sound:Play()
+	end
+end)
+
+remotes:WaitForChild("Notify").OnClientEvent:Connect(function(message)
+	show(toast, message, 3.5)
+end)
+
+remotes:WaitForChild("AhMa").OnClientEvent:Connect(function(message)
+	show(speech, "Ah Ma: " .. message, 6)
+end)
+
+branchButton.Activated:Connect(function()
+	if not state then
+		return
+	end
+	confirmText.Text = string.format(
+		"Open branch %d? You start again from one kopi stall with RM 0, and everything earns x%.1f from now on.",
+		state.branches + 2,
+		state.multiplier + 0.5
+	)
+	confirm.Visible = true
+	branchButton.Visible = false
+end)
+yes.Activated:Connect(function()
+	confirm.Visible = false
+	remotes.OpenBranch:FireServer()
+end)
+no.Activated:Connect(function()
+	confirm.Visible = false
+	branchButton.Visible = state ~= nil and state.canOpenBranch
+end)
+
+-- Every frame: count the cash up smoothly and spin the ceiling fans.
+RunService.RenderStepped:Connect(function(dt)
+	if state then
+		local gap = state.cash - shownCash
+		if math.abs(gap) < 1 then
+			shownCash = state.cash
+		else
+			shownCash += gap * math.min(1, dt * 10)
+		end
+		cashLabel.Text = Format.money(shownCash)
+	end
+	for _, blades in CollectionService:GetTagged("Spin") do
+		if blades:IsA("Model") and blades.PrimaryPart then
+			blades:PivotTo(blades:GetPivot() * CFrame.Angles(0, dt * 6, 0))
+		end
+	end
+end)
+
+-- A small bounce on the cash panel whenever a pop-up says money came in.
+local bounce = TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.Out, 0, true)
+remotes.Notify.OnClientEvent:Connect(function(message)
+	if string.find(message, "Collected", 1, true) then
+		TweenService:Create(cashLabel, bounce, { TextColor3 = WHITE }):Play()
+	end
+end)
+]]></string>
+        </Properties>
+      </Item>
+    </Item>
+  </Item>
+  <Item class="Workspace" referent="22">
+    <Properties>
+      <string name="Name">Workspace</string>
+      <bool name="FilteringEnabled">true</bool>
+      <bool name="NeedsPivotMigration">false</bool>
+    </Properties>
+  </Item>
+</roblox>

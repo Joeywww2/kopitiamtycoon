@@ -6,8 +6,10 @@ local Catalog = require(Shared:WaitForChild("Catalog"))
 local Config = require(Shared:WaitForChild("Config"))
 local Economy = require(Shared:WaitForChild("Economy"))
 local Format = require(Shared:WaitForChild("Format"))
+local SaveData = require(Shared:WaitForChild("SaveData"))
 
 local Build = require(script.Parent.Build)
+local Customers = require(script.Parent.Customers)
 local Models = require(script.Parent.Models)
 local World = require(script.Parent.World)
 
@@ -28,6 +30,9 @@ function Tycoon.new(player, plot, data, remotes)
 	self.cash = data.cash
 	self.branches = data.branches
 	self.lastAngpow = data.lastAngpow
+	self.lastSeen = data.lastSeen
+	self.receipts = table.clone(data.receipts)
+	self.passes = {} -- game pass name -> true, filled in by the Shop once Roblox answers
 	self.till = 0
 	self.owned = {}
 	for _, id in data.owned do
@@ -48,8 +53,20 @@ function Tycoon:notify(text)
 	self.remotes.Notify:FireClient(self.player, text)
 end
 
+function Tycoon:effect(name)
+	self.remotes.Effect:FireClient(self.player, name)
+end
+
+function Tycoon:boost()
+	return self.passes.DoubleCash and 2 or 1
+end
+
 function Tycoon:income()
-	return Economy.incomePerSecond(self.owned, self.branches)
+	return Economy.incomePerSecond(self.owned, self.branches, self:boost())
+end
+
+function Tycoon:autoCollects()
+	return self.passes.AutoCollect == true or Economy.autoCollects(self.owned)
 end
 
 -- True when `hit` is part of this kopitiam owner's own character.
@@ -109,8 +126,34 @@ function Tycoon:start()
 	stats.Parent = self.player
 	self.stats = { ringgit = ringgit, branches = branches }
 
+	self.customers = Customers.new(folder, self.floor, function()
+		return self.owned
+	end, Random.new())
+
 	folder.Parent = self.plot.folder
 	self:pushState()
+end
+
+-- Pays what the kopitiam earned while its owner was away. Only for a save that loaded. Returns the amount.
+function Tycoon:welcomeBack(now)
+	if self.lastSeen <= 0 then
+		return 0
+	end
+	local amount = Economy.offlineEarnings(self:income(), now - self.lastSeen)
+	if amount > 0 then
+		self.cash += amount
+		self:paintPads()
+		self:pushState()
+		self:effect("Collect")
+	end
+	return amount
+end
+
+-- Moves the customers. Called every server frame, so they walk smoothly.
+function Tycoon:stepCustomers(dt)
+	if self.customers then
+		self.customers:step(dt)
+	end
 end
 
 function Tycoon:buildItem(id)
@@ -192,6 +235,7 @@ function Tycoon:buy(id)
 	self.owned[id] = true
 	self:buildItem(id)
 	self:refreshPads()
+	self:effect("Buy")
 	if item.autoCollect then
 		self:notify("Ah Boy starts today. He empties the till for you.")
 	elseif item.unlocksBranch then
@@ -213,6 +257,7 @@ function Tycoon:collect(quiet)
 	self.cash += amount
 	if not quiet then
 		self:notify("Collected " .. Format.money(amount) .. ".")
+		self:effect("Collect")
 	end
 	self:paintPads()
 	self:pushState()
@@ -224,7 +269,7 @@ function Tycoon:step(dt)
 	local income = self:income()
 	local capacity = Economy.tillCapacity(income)
 	self.till = math.min(capacity, self.till + income * dt)
-	if Economy.autoCollects(self.owned) and self.till >= 1 then
+	if self:autoCollects() and self.till >= 1 then
 		local amount = math.floor(self.till)
 		self.till -= amount
 		self.cash += amount
@@ -247,6 +292,9 @@ function Tycoon:openBranch()
 	self.cash = 0
 	self.till = 0
 	self.owned = { [Catalog.starter] = true }
+	if self.customers then
+		self.customers:clear()
+	end
 	for id, model in self.models do
 		model:Destroy()
 		self.models[id] = nil
@@ -257,6 +305,7 @@ function Tycoon:openBranch()
 	end
 	self:buildItem(Catalog.starter)
 	self:refreshPads()
+	self:effect("Branch")
 	self:notify("Branch " .. (self.branches + 1) .. " is open! Everything now earns x" .. string.format("%.1f", Economy.multiplier(self.branches)) .. ".")
 	self:pushState()
 	return true
@@ -273,6 +322,7 @@ function Tycoon:claimAngpow(now)
 	self.cash += amount
 	self:paintPads()
 	self:pushState()
+	self:effect("Angpow")
 	return amount, 0
 end
 
@@ -293,7 +343,8 @@ function Tycoon:pushState()
 		branches = self.branches,
 		multiplier = Economy.multiplier(self.branches),
 		canOpenBranch = Economy.canOpenBranch(self.owned),
-		autoCollect = Economy.autoCollects(self.owned),
+		autoCollect = self:autoCollects(),
+		passes = self.passes,
 	})
 end
 
@@ -306,16 +357,68 @@ function Tycoon:snapshot()
 		end
 	end
 	return {
-		version = 1,
+		version = SaveData.VERSION,
 		cash = math.floor(self.cash + self.till),
 		branches = self.branches,
 		owned = owned,
 		lastAngpow = self.lastAngpow,
+		lastSeen = os.time(),
+		receipts = self.receipts,
 	}
+end
+
+-- ── The Robux shop ──
+-- A game pass the player owns. Shown on screen and used from now on.
+function Tycoon:grantPass(name)
+	if self.passes[name] then
+		return
+	end
+	self.passes[name] = true
+	if name == "DoubleCash" then
+		self:notify("Double Cash is on: everything earns x2.")
+	elseif name == "AutoCollect" then
+		self:notify("Auto Till is on: the till empties itself.")
+	end
+	self:paintPads()
+	self:pushState()
+end
+
+function Tycoon:hasReceipt(receiptId)
+	return table.find(self.receipts, receiptId) ~= nil
+end
+
+-- A cash pack. Remembers the receipt so a retry from Roblox never pays twice. Returns the amount.
+function Tycoon:grantCashPack(receiptId, pack)
+	local amount = Economy.cashPack(self:income(), pack.seconds, pack.minimum)
+	self.cash += amount
+	table.insert(self.receipts, receiptId)
+	while #self.receipts > SaveData.MAX_RECEIPTS do
+		table.remove(self.receipts, 1)
+	end
+	self:notify("Thank you, boss! +" .. Format.money(amount) .. ".")
+	self:effect("Angpow")
+	self:paintPads()
+	self:pushState()
+	return amount
+end
+
+-- Takes a cash pack back when it could not be saved, so Roblox can try again later.
+function Tycoon:undoCashPack(receiptId, amount)
+	self.cash = math.max(0, self.cash - amount)
+	local at = table.find(self.receipts, receiptId)
+	if at then
+		table.remove(self.receipts, at)
+	end
+	self:paintPads()
+	self:pushState()
 end
 
 function Tycoon:destroy()
 	self.alive = false
+	if self.customers then
+		self.customers:destroy()
+		self.customers = nil
+	end
 	for _, connection in self.connections do
 		connection:Disconnect()
 	end

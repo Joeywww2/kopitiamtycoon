@@ -12,7 +12,8 @@ function Economy.multiplier(branches: number): number
 	return 1 + math.max(0, branches) * Config.BranchBonus
 end
 
-function Economy.incomePerSecond(owned: Owned, branches: number): number
+-- `boost` is 2 with the Double Cash pass, otherwise 1.
+function Economy.incomePerSecond(owned: Owned, branches: number, boost: number?): number
 	local base = 0
 	for id in owned do
 		local item = Catalog.byId[id]
@@ -20,7 +21,7 @@ function Economy.incomePerSecond(owned: Owned, branches: number): number
 			base += item.income
 		end
 	end
-	return base * Economy.multiplier(branches)
+	return base * Economy.multiplier(branches) * (boost or 1)
 end
 
 function Economy.tillCapacity(incomePerSecond: number): number
@@ -83,6 +84,20 @@ function Economy.canOpenBranch(owned: Owned): boolean
 		end
 	end
 	return false
+end
+
+-- What a kopitiam earns while its owner is away: a share of its income, for at most a few hours.
+function Economy.offlineEarnings(incomePerSecond: number, secondsAway: number): number
+	if secondsAway < Config.OfflineMinimumSeconds then
+		return 0
+	end
+	local seconds = math.min(secondsAway, Config.OfflineHours * 3600)
+	return math.floor(seconds * incomePerSecond * Config.OfflineShare)
+end
+
+-- A cash pack from the Robux shop: some seconds of income, never less than its minimum.
+function Economy.cashPack(incomePerSecond: number, seconds: number, minimum: number): number
+	return math.max(minimum, math.floor(incomePerSecond * seconds))
 end
 
 function Economy.angpow(incomePerSecond: number): number

@@ -6,6 +6,7 @@ local NAMES = {
 	"Notify", -- server -> player: a short message that pops up
 	"AhMa", -- server -> player: something Ah Ma says
 	"OpenBranch", -- player -> server: "open a new branch" was pressed
+	"Effect", -- server -> player: play a sound (Buy, Collect, Angpow, Branch)
 }
 
 local Remotes = {}

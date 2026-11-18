@@ -58,6 +58,7 @@ local EVENTS = {
 	RemoteEvent = { "OnServerEvent", "OnClientEvent" },
 	ProximityPrompt = { "Triggered" },
 	GuiButton = { "Activated" },
+	MarketplaceService = { "PromptGamePassPurchaseFinished" },
 }
 for className, names in EVENTS do
 	for _, name in names do
@@ -126,8 +127,43 @@ roblox.implementMethod("TweenService", "Create", function(_, instance, _info, go
 	}
 end)
 
+-- The Robux shop. `Engine.passes["userId:passId"] = true` means that player owns that pass.
+Engine.passes = {}
+Engine.prompts = {} -- every purchase prompt a screen opened: { kind = "pass" | "product", id = number }
+local receiptCallback = nil
+roblox.implementProperty("MarketplaceService", "ProcessReceipt", function()
+	return receiptCallback
+end, function(_, fn)
+	receiptCallback = fn
+end)
+roblox.implementMethod("MarketplaceService", "UserOwnsGamePassAsync", function(_, userId, passId)
+	assert(type(userId) == "number" and type(passId) == "number", "UserOwnsGamePassAsync(userId, passId)")
+	return Engine.passes[userId .. ":" .. passId] == true
+end)
+roblox.implementMethod("MarketplaceService", "PromptGamePassPurchase", function(_, player, id)
+	assert(typeof(player) == "Instance" and player.ClassName == "Player" and type(id) == "number", "PromptGamePassPurchase(player, id)")
+	table.insert(Engine.prompts, { kind = "pass", id = id })
+end)
+roblox.implementMethod("MarketplaceService", "PromptProductPurchase", function(_, player, id)
+	assert(typeof(player) == "Instance" and player.ClassName == "Player" and type(id) == "number", "PromptProductPurchase(player, id)")
+	table.insert(Engine.prompts, { kind = "product", id = id })
+end)
+roblox.implementMethod("Players", "GetPlayerByUserId", function(self, userId)
+	for _, child in self:GetChildren() do
+		if child.ClassName == "Player" and child.UserId == userId then
+			return child
+		end
+	end
+	return nil
+end)
+Engine.played = {} -- the name of every Sound played
+roblox.implementMethod("Sound", "Play", function(self)
+	assert(self.SoundId ~= "", "a Sound with no SoundId")
+	table.insert(Engine.played, self.Name)
+end)
+
 -- A data store kept in memory. `failLoads[key] = true` makes that key's GetAsync throw.
-Engine.store = { data = {}, failLoads = {}, sets = 0 }
+Engine.store = { data = {}, failLoads = {}, failSaves = false, sets = 0 }
 local fakeStore = {}
 function fakeStore:GetAsync(key)
 	if Engine.store.failLoads[key] then
@@ -137,6 +173,9 @@ function fakeStore:GetAsync(key)
 end
 function fakeStore:SetAsync(key, value)
 	assert(type(value) == "table", "SetAsync value")
+	if Engine.store.failSaves then
+		error("502: API Services rejected request")
+	end
 	Engine.store.sets += 1
 	Engine.store.data[key] = table.clone(value)
 end

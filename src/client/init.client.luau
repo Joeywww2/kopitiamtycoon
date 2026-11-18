@@ -1,17 +1,24 @@
 -- Kopitiam Tycoon: what each player sees on screen. Cash, income, the till, pop-up messages,
--- Ah Ma's speech and the "open a new branch" button. Built in code so it works on phones and computers.
+-- Ah Ma's speech, the "open a new branch" button, the Robux shop and the sounds.
+-- Built in code so it works on phones and computers.
 local CollectionService = game:GetService("CollectionService")
+local MarketplaceService = game:GetService("MarketplaceService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
+local SoundService = game:GetService("SoundService")
 local TweenService = game:GetService("TweenService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
+local Config = require(Shared:WaitForChild("Config"))
 local Format = require(Shared:WaitForChild("Format"))
 local remotes = ReplicatedStorage:WaitForChild("Remotes")
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
+
+local state = nil -- the latest numbers from the server
+local shownCash = 0
 
 local GOLD = Color3.fromRGB(232, 188, 70)
 local DARK = Color3.fromRGB(20, 21, 24)
@@ -135,7 +142,98 @@ local no = text(confirm, { button = true, background = RED, text = "Not yet", si
 corner(yes, 12)
 corner(no, 12)
 
+-- The Robux shop: a button on the left, and a panel with what is for sale. Only things with an ID show.
+local shopItems = {}
+for _, entry in {
+	{ pass = "DoubleCash", title = "Double Cash", line = "Everything earns x2, forever." },
+	{ pass = "AutoCollect", title = "Auto Till", line = "The till empties itself. No more walking to collect." },
+	{ product = "CashSmall", title = "Bag of Ringgit", line = "15 minutes of your income, right now." },
+	{ product = "CashBig", title = "Tauke's Vault", line = "2 hours of your income, right now." },
+} do
+	local id = entry.pass and Config.GamePasses[entry.pass] or Config.Products[entry.product].id
+	if id ~= 0 then
+		entry.id = id
+		table.insert(shopItems, entry)
+	end
+end
+
+local shopButton = text(gui, {
+	button = true, background = GREEN, text = "Shop", size = UDim2.new(0.2, 0, 0.07, 0),
+	position = UDim2.new(0, 12, 0.5, 0), anchor = Vector2.new(0, 0.5), maxText = 20,
+})
+shopButton.Visible = #shopItems > 0
+corner(shopButton, 14)
+local shopButtonLimit = Instance.new("UISizeConstraint")
+shopButtonLimit.MaxSize = Vector2.new(130, 56)
+shopButtonLimit.MinSize = Vector2.new(84, 48)
+shopButtonLimit.Parent = shopButton
+
+local shop = Instance.new("Frame")
+shop.Name = "Shop"
+shop.AnchorPoint = Vector2.new(0.5, 0.5)
+shop.Position = UDim2.new(0.5, 0, 0.5, 0)
+shop.Size = UDim2.new(0.9, 0, 0.72, 0)
+shop.BackgroundColor3 = DARK
+shop.BorderSizePixel = 0
+shop.Visible = false
+corner(shop, 18)
+local shopLimit = Instance.new("UISizeConstraint")
+shopLimit.MaxSize = Vector2.new(460, 420)
+shopLimit.Parent = shop
+shop.Parent = gui
+text(shop, { text = "Kopitiam Shop", color = GOLD, size = UDim2.new(1, -90, 0.12, 0), position = UDim2.new(0, 16, 0.03, 0), maxText = 26 })
+local closeShop = text(shop, { button = true, background = RED, text = "X", size = UDim2.new(0, 48, 0, 48), position = UDim2.new(1, -12, 0, 12), anchor = Vector2.new(1, 0), maxText = 22 })
+corner(closeShop, 12)
+local shopRows = {} -- pass name -> its buy button, to show "Owned"
+local rowHeight = 0.8 / math.max(#shopItems, 1)
+for i, entry in shopItems do
+	local row = Instance.new("Frame")
+	row.BackgroundTransparency = 1
+	row.Size = UDim2.new(1, -32, rowHeight, -8)
+	row.Position = UDim2.new(0, 16, 0.17 + (i - 1) * rowHeight, 0)
+	row.Parent = shop
+	text(row, { text = entry.title, color = WHITE, size = UDim2.new(0.66, 0, 0.45, 0), position = UDim2.new(0, 0, 0.05, 0), maxText = 20 })
+	text(row, { text = entry.line, font = Enum.Font.Gotham, size = UDim2.new(0.66, 0, 0.4, 0), position = UDim2.new(0, 0, 0.52, 0), maxText = 15 })
+	local buy = text(row, { button = true, background = GOLD, color = DARK, text = "Buy", size = UDim2.new(0.3, 0, 0.8, 0), position = UDim2.new(1, 0, 0.5, 0), anchor = Vector2.new(1, 0.5), maxText = 20 })
+	corner(buy, 12)
+	buy.Activated:Connect(function()
+		if entry.pass then
+			if not (state and state.passes and state.passes[entry.pass]) then
+				MarketplaceService:PromptGamePassPurchase(player, entry.id)
+			end
+		else
+			MarketplaceService:PromptProductPurchase(player, entry.id)
+		end
+	end)
+	if entry.pass then
+		shopRows[entry.pass] = buy
+	end
+end
+shopButton.Activated:Connect(function()
+	shop.Visible = not shop.Visible
+end)
+closeShop.Activated:Connect(function()
+	shop.Visible = false
+end)
+
 gui.Parent = playerGui
+
+-- Sounds: one Sound for each name in Config.Sounds that has an ID.
+local sounds = {}
+for name, id in Config.Sounds do
+	if id ~= "" then
+		local sound = Instance.new("Sound")
+		sound.Name = name
+		sound.SoundId = id
+		sound.Volume = name == "Music" and 0.25 or 0.6
+		sound.Looped = name == "Music"
+		sound.Parent = SoundService
+		sounds[name] = sound
+	end
+end
+if sounds.Music then
+	sounds.Music:Play()
+end
 
 -- Show a frame for a few seconds, then hide it. A newer message replaces an older one.
 local showCount = {}
@@ -151,8 +249,6 @@ local function show(label, message, seconds)
 	end)
 end
 
-local state = nil
-local shownCash = 0
 
 remotes:WaitForChild("State").OnClientEvent:Connect(function(newState)
 	state = newState
@@ -166,6 +262,19 @@ remotes:WaitForChild("State").OnClientEvent:Connect(function(newState)
 	end
 	tillLabel.TextColor3 = (not newState.autoCollect and newState.till >= newState.tillMax) and GOLD or WHITE
 	branchButton.Visible = newState.canOpenBranch and not confirm.Visible
+	for name, button in shopRows do
+		local owned = newState.passes and newState.passes[name]
+		button.Text = owned and "Owned" or "Buy"
+		button.BackgroundColor3 = owned and GREEN or GOLD
+		button.TextColor3 = owned and WHITE or DARK
+	end
+end)
+
+remotes:WaitForChild("Effect").OnClientEvent:Connect(function(name)
+	local sound = sounds[name]
+	if sound then
+		sound:Play()
+	end
 end)
 
 remotes:WaitForChild("Notify").OnClientEvent:Connect(function(message)

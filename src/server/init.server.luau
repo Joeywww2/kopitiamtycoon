@@ -9,6 +9,7 @@ local Format = require(Shared:WaitForChild("Format"))
 
 local AhMa = require(script.AhMa)
 local Remotes = require(script.Remotes)
+local Shop = require(script.Shop)
 local Store = require(script.Store)
 local Tycoon = require(script.Tycoon)
 local World = require(script.World)
@@ -70,8 +71,14 @@ local function onPlayerAdded(player)
 		task.spawn(placeAtPlot, tycoon, player.Character)
 	end
 
+	Shop.checkPasses(player)
 	if loaded then
-		tycoon:notify("Welcome to your kopitiam! Step on a green pad to buy your next upgrade.")
+		local away = tycoon:welcomeBack(os.time())
+		if away > 0 then
+			tycoon:notify("Welcome back! While you were away, your kopitiam earned " .. Format.money(away) .. ".")
+		else
+			tycoon:notify("Welcome to your kopitiam! Step on a green pad to buy your next upgrade.")
+		end
 	else
 		tycoon:notify("Your save could not be loaded, so this visit will not be saved. Try again later.")
 	end
@@ -119,9 +126,16 @@ remotes.OpenBranch.OnServerEvent:Connect(function(player)
 	end
 end)
 
--- Income: a few times a second is plenty.
+Shop.start(function(player)
+	return tycoons[player]
+end, save)
+
+-- Income a few times a second is plenty; customers move every frame so they walk smoothly.
 local sinceStep = 0
 RunService.Heartbeat:Connect(function(dt)
+	for _, tycoon in tycoons do
+		tycoon:stepCustomers(dt)
+	end
 	sinceStep += dt
 	if sinceStep < 0.25 then
 		return

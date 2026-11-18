@@ -2,6 +2,7 @@
 -- Run with:  rojo build -o build/KopitiamTycoon.rbxlx && lune run tests/run
 local fs = require("@lune/fs")
 local process = require("@lune/process")
+local Enum = require("@lune/roblox").Enum
 local serde = require("@lune/serde")
 local task = require("@lune/task")
 
@@ -74,6 +75,26 @@ check("clean: bad branches", junk.branches == 0)
 check("clean: owned", #junk.owned == 2 and junk.owned[1] == "kopi_stall" and junk.owned[2] == "table_1", table.concat(junk.owned, ","))
 check("clean: nan time", junk.lastAngpow == 0)
 check("clean: not a table", #SaveData.clean("oops").owned == 1)
+local olderSave = SaveData.clean({ version = 1, cash = 10, branches = 0, owned = { "kopi_stall" }, lastAngpow = 0 })
+check("clean: a version 1 save gets the new fields", olderSave.lastSeen == 0 and #olderSave.receipts == 0)
+local receiptSave = SaveData.clean({ receipts = { "a", 5, "b", string.rep("x", 200) }, lastSeen = -4 })
+check("clean: receipts keep only short strings", table.concat(receiptSave.receipts, ",") == "a,b", table.concat(receiptSave.receipts, ","))
+check("clean: bad lastSeen", receiptSave.lastSeen == 0)
+
+check("offline: short breaks earn nothing", Economy.offlineEarnings(10, Config.OfflineMinimumSeconds - 1) == 0)
+check("offline: half pay while away", Economy.offlineEarnings(10, 3600) == math.floor(3600 * 10 * Config.OfflineShare))
+check("offline: capped at a few hours", Economy.offlineEarnings(10, 30 * 24 * 3600) == math.floor(Config.OfflineHours * 3600 * 10 * Config.OfflineShare))
+check("cash pack: seconds of income", Economy.cashPack(10, 900, 500) == 9000)
+check("cash pack: never below the minimum", Economy.cashPack(0.1, 900, 500) == 500)
+check("double cash doubles income", Economy.incomePerSecond({ kopi_stall = true }, 1, 2) == 3)
+
+-- Turn the shop and a sound on, as Joey will once he has made them in the Creator Hub.
+Config.GamePasses.DoubleCash = 111
+Config.GamePasses.AutoCollect = 222
+Config.Products.CashSmall.id = 333
+Config.Products.CashBig.id = 444
+Config.Sounds.Buy = "rbxassetid://1"
+Config.Sounds.Collect = "rbxassetid://2"
 
 -- ── 2. Start the server ──────────────────────────────────────────────────────────────────────────
 section("Server start")
@@ -229,7 +250,15 @@ end)())
 local parts = {}
 for _, d in workspace:GetDescendants() do
 	if d:IsA("BasePart") and d.Name ~= "HumanoidRootPart" then
-		table.insert(parts, { s = { d.Size.X, d.Size.Y, d.Size.Z }, c = { d.CFrame:GetComponents() }, k = { d.Color.R, d.Color.G, d.Color.B }, sh = d.ClassName == "Part" and d.Shape.Name or "Block", t = d.Transparency, n = d.Material.Name == "Neon" })
+		-- Moved models (customers) only record their pivot here, so place each part as Roblox would.
+		local cframe = d.CFrame
+		local model = d:FindFirstAncestorWhichIsA("Model")
+		if model and model.PrimaryPart and model.PrimaryPart ~= d then
+			cframe = model:GetPivot() * model.PrimaryPart.CFrame:Inverse() * d.CFrame
+		elseif model and model.PrimaryPart == d then
+			cframe = model:GetPivot()
+		end
+		table.insert(parts, { s = { d.Size.X, d.Size.Y, d.Size.Z }, c = { cframe:GetComponents() }, k = { d.Color.R, d.Color.G, d.Color.B }, sh = d.ClassName == "Part" and d.Shape.Name or "Block", t = d.Transparency, n = d.Material.Name == "Neon" })
 	end
 end
 fs.writeFile("build/scene.json", serde.encode("json", { parts = parts, focus = { plot.Floor.CFrame.Position.X, plot.Floor.CFrame.Position.Y, plot.Floor.CFrame.Position.Z } }))
@@ -291,6 +320,83 @@ check("branch is back", state(joey).branches == 1)
 Engine.signal(prompt, "Triggered"):Fire(joey)
 check("no second angpow after rejoining", (Engine.last(joey, "AhMa") or ""):find("Angpow for you") == nil)
 
+section("Customers")
+local customerFolder = folder:FindFirstChild("Customers")
+check("customers have a place", customerFolder ~= nil)
+local mostAtOnce, everSpoke = 0, false
+for _ = 1, 160 do
+	Engine.advance(0.25)
+	local inside = #customerFolder:GetChildren()
+	mostAtOnce = math.max(mostAtOnce, inside)
+	for _, d in customerFolder:GetDescendants() do
+		if d.ClassName == "TextLabel" then
+			everSpoke = true
+		end
+	end
+end
+check("customers walk in", mostAtOnce >= 1, mostAtOnce)
+local standing = true
+for _, model in customerFolder:GetChildren() do
+	local height = model:GetPivot().Position.Y - plot.Floor.CFrame.Position.Y
+	if height < 2.5 then
+		standing = false
+	end
+end
+check("customers stand on the floor, not in it", standing)
+check("no more than the shop can hold", mostAtOnce <= Config.CustomerMax, mostAtOnce)
+check("customers order something", everSpoke)
+local touchy = false
+for _, d in customerFolder:GetDescendants() do
+	if d:IsA("BasePart") and (d.CanTouch or d.CanCollide) then
+		touchy = true
+	end
+end
+check("customers never press buy pads or block the way", not touchy)
+
+section("Offline earnings")
+Engine.store.data.player_7007 = { version = 2, cash = 0, branches = 0, owned = { "kopi_stall", "table_1" }, lastAngpow = 0, lastSeen = os.time() - 3600, receipts = {} }
+local returning = Engine.join("Returning", 7007)
+Engine.spawnCharacter(returning)
+task.wait(0.2)
+local expectAway = math.floor(3600 * 2 * Config.OfflineShare)
+check("earns while away", state(returning).cash == expectAway, state(returning).cash)
+check("is told what was earned", (Engine.last(returning, "Notify") or ""):find("While you were away, your kopitiam earned " .. Format.money(expectAway), 1, true) ~= nil, Engine.last(returning, "Notify"))
+Engine.leave(returning)
+check("save remembers when they left", math.abs(Engine.store.data.player_7007.lastSeen - os.time()) <= 2)
+returning = Engine.join("Returning", 7007)
+task.wait(0.2)
+check("rejoining straight away pays nothing extra", state(returning).cash == expectAway, state(returning).cash)
+Engine.leave(returning)
+
+section("Robux shop")
+Engine.passes["8008:111"] = true
+local vip = Engine.join("Vip", 8008)
+task.wait(0.2)
+check("an owned Double Cash pass doubles income", state(vip).income == 2 and state(vip).passes.DoubleCash == true, state(vip).income)
+Engine.leave(vip)
+local MarketplaceService = game:GetService("MarketplaceService")
+Engine.signal(MarketplaceService, "PromptGamePassPurchaseFinished"):Fire(stranger, 222, true)
+check("Auto Till works the moment it is bought", state(stranger).autoCollect == true)
+Engine.advance(3)
+check("the till empties itself", state(stranger).till == 0)
+local strangerCash = state(stranger).cash
+local decision = MarketplaceService.ProcessReceipt({ ProductId = 333, PlayerId = 2002, PurchaseId = "r1" })
+local packAmount = Economy.cashPack(state(stranger).income, Config.Products.CashSmall.seconds, Config.Products.CashSmall.minimum)
+check("a cash pack is granted", decision == Enum.ProductPurchaseDecision.PurchaseGranted, decision)
+check("a cash pack pays", state(stranger).cash == strangerCash + packAmount, state(stranger).cash - strangerCash)
+check("a cash pack saves straight away", Engine.store.data.player_2002 and table.find(Engine.store.data.player_2002.receipts, "r1") ~= nil)
+decision = MarketplaceService.ProcessReceipt({ ProductId = 333, PlayerId = 2002, PurchaseId = "r1" })
+check("the same receipt never pays twice", decision == Enum.ProductPurchaseDecision.PurchaseGranted and state(stranger).cash == strangerCash + packAmount)
+check("an unknown product waits", MarketplaceService.ProcessReceipt({ ProductId = 999, PlayerId = 2002, PurchaseId = "r2" }) == Enum.ProductPurchaseDecision.NotProcessedYet)
+check("a player who left waits", MarketplaceService.ProcessReceipt({ ProductId = 333, PlayerId = 424242, PurchaseId = "r3" }) == Enum.ProductPurchaseDecision.NotProcessedYet)
+Engine.store.failSaves = true -- three tries with waits, about 6 seconds
+local cashBeforeFail = state(stranger).cash
+decision = MarketplaceService.ProcessReceipt({ ProductId = 444, PlayerId = 2002, PurchaseId = "r4" })
+Engine.store.failSaves = false
+check("when saving fails, the pack is taken back for a retry", decision == Enum.ProductPurchaseDecision.NotProcessedYet and state(stranger).cash == cashBeforeFail, state(stranger).cash - cashBeforeFail)
+decision = MarketplaceService.ProcessReceipt({ ProductId = 444, PlayerId = 2002, PurchaseId = "r4" })
+check("the retry pays once saving works", decision == Enum.ProductPurchaseDecision.PurchaseGranted and state(stranger).cash > cashBeforeFail)
+
 section("When loading a save fails")
 Engine.store.failLoads.player_3003 = true
 Engine.store.data.player_3003 = { version = 1, cash = 999999, branches = 4, owned = { "kopi_stall", "table_1" }, lastAngpow = 5 }
@@ -346,6 +452,24 @@ Engine.signal(prompt, "Triggered"):Fire(joey)
 check("shows what Ah Ma says", labelWith("Ah Ma: ") ~= nil and labelWith("Ah Ma: ").Visible)
 local branchButton = labelWith("Open a new branch")
 check("branch button hidden until earned", branchButton ~= nil and branchButton.Visible == false)
+local shopButton = labelWith("Shop")
+check("shop button shows when the shop has items", shopButton ~= nil and shopButton.Visible)
+Engine.signal(shopButton, "Activated"):Fire()
+check("shop opens", hud.Shop.Visible)
+local buyButtons = {}
+for _, d in hud.Shop:GetDescendants() do
+	if d.ClassName == "TextButton" and (d.Text == "Buy" or d.Text == "Owned") then
+		table.insert(buyButtons, d)
+	end
+end
+check("four things for sale", #buyButtons == 4, #buyButtons)
+Engine.signal(buyButtons[1], "Activated"):Fire()
+check("Buy opens the Roblox purchase", #Engine.prompts == 1 and Engine.prompts[1].kind == "pass" and Engine.prompts[1].id == 111)
+Engine.signal(labelWith("X"), "Activated"):Fire()
+check("shop closes", not hud.Shop.Visible)
+local playedBefore = #Engine.played
+touch(joey, folder.CollectPad, joeyRoot)
+check("collecting plays a sound", Engine.played[#Engine.played] == "Collect" and #Engine.played == playedBefore + 1)
 playToFranchise(joey, joeyRoot)
 check("branch button shows when earned", branchButton.Visible == true)
 Engine.signal(branchButton, "Activated"):Fire()
@@ -358,7 +482,7 @@ section("Warnings from the game")
 for _, warning in Engine.warnings do
 	print("  warn: " .. warning)
 end
-check("only the expected warnings", #Engine.warnings == 3, #Engine.warnings) -- the three failed load tries
+check("only the expected warnings", #Engine.warnings == 6, #Engine.warnings) -- three failed load tries, three failed save tries
 
 end
 
